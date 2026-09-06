@@ -130,6 +130,8 @@ and the ops-platform experience. Legend: **function** — why — layer — freq
 - **Archive inventory, encrypted kubeconfigs, audit log, final version matrix; delete live secrets** — P1
 
 ## ktags-specific additions (from the ops-platform review)
+- **Local backup copy**: pull the latest verified etcd snapshot (and Longhorn backup manifest) to the operator's laptop on demand, encrypted with the operator's age key; third copy besides node and peer/S3 — P1
+- **Own access door, with customer consent**: optional Tailscale node or jump-host setup as a *secondary* path so the team keeps access if the customer's primary route (VPN, firewall rule, bastion) breaks; recorded in the inventory as an explicit, customer-approved decision — P1
 - Customer config **export/import** (age passphrase) for hand-over between operators — P0
 - **Team member onboarding/offboarding** as one action (age key, SSH key, push to all nodes of the customers they hold) — P0
 - **k9s bridge** (kubeconfig via SSH tunnel, temporary, audited) — P0
