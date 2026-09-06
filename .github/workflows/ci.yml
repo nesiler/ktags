@@ -78,3 +78,18 @@ jobs:
       - uses: golangci/golangci-lint-action@v8
         with:
           version: v2.13.2
+
+  # The single required status check on main. Fails if any job failed or was cancelled, so a
+  # skipped or renamed job can never let a PR through.
+  ci-required:
+    name: ci-required
+    if: always()
+    needs: [guard, go, lint]
+    runs-on: ubuntu-latest
+    steps:
+      - name: All jobs succeeded
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          echo "$RESULTS" | jq -e 'to_entries | all(.value.result == "success")' >/dev/null \
+            || { echo "$RESULTS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'; exit 1; }

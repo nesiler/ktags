@@ -95,13 +95,17 @@ issue → stage:dev → stage:test → stage:review → merge (issue closes) →
 | `AGENTS.md` | shared instructions (Codex, OpenCode, Gemini CLI, Cursor read it natively) |
 | `CLAUDE.md` | `@AGENTS.md` + Claude-only notes |
 | `.agents/skills/*/SKILL.md` | the two procedures, spec-only frontmatter; `.claude/skills` is a symlink to it |
-| `.claude/settings.json` | attribution off, secret paths denied, hooks |
+| `.claude/settings.json` | attribution off, secret paths and pushes to `main` denied, hooks: doctor on start, attribution check before `git commit`, build/vet/test gate on stop (`.claude/hooks/gate.sh`) |
 | `.claude/agents/reviewer.md` | fresh-context reviewer subagent |
 | `.codex/config.toml` | Codex project defaults (applies once the folder is trusted) |
 | `opencode.json` | OpenCode project defaults |
 | `.githooks/` | `commit-msg` (attribution), `pre-push` (fmt, vet, quick tests); `make hooks` activates |
 | `scripts/guard.sh` | `doctor`, `check-message`, `verify-attribution <range>` |
-| `.github/` | CI, issue forms, PR template |
+| `.github/` | CI (`ci-required` is the one status check the `main` ruleset demands), issue forms, PR template, Dependabot |
+
+Repository settings (applied with `gh`, not stored as code): squash-only merges with the PR title as
+commit title, branch deleted on merge, ruleset on `main` blocking deletion and force-push and
+requiring `ci-required`; the maintainer is the only bypass actor.
 
 Personal settings (`.claude/settings.local.json`, `~/.codex/config.toml`,
 `~/.config/opencode/`) are never committed.

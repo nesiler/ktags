@@ -64,6 +64,9 @@ messages with the next command, atomic access step, and interactive-by-default c
 ## Open questions
 
 - Drop sops in favour of plain age? (recommended yes)
+- Labels carry task state today (`stage:*`). The research report recommends a free GitHub
+  organisation so issue types and a Projects v2 `Status` field can replace them; moving the repo
+  is a maintainer decision (`docs/research/2026-09-07/agentic-dev-workflow.md §5, §9.2`).
 - Before building the real UI: write a short interaction standard (screens, states, keys, error and
   confirmation conventions) and possibly one more prototype pass on the real data model, so the
   many day-2 functions land in a consistent frame.
