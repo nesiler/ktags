@@ -9,13 +9,19 @@ ZERO=0000000000000000000000000000000000000000
 while read -r _local_ref local_sha _remote_ref remote_sha; do
   [ "$local_sha" = "$ZERO" ] && continue
   if [ "$remote_sha" = "$ZERO" ]; then
-    base="$(git merge-base "$local_sha" origin/main 2>/dev/null || true)"
-    [ -n "$base" ] || { echo "pre-push: no base against origin/main; run git fetch origin" >&2; exit 1; }
+    # New branch. Base on origin/main when it exists; on an empty remote scan the whole history.
+    if git rev-parse --verify -q origin/main >/dev/null; then
+      base="$(git merge-base "$local_sha" origin/main 2>/dev/null || true)"
+      [ -n "$base" ] || { echo "pre-push: no base against origin/main; run git fetch origin" >&2; exit 1; }
+      range="$base..$local_sha"
+    else
+      range="$local_sha"
+    fi
   else
-    base="$remote_sha"
+    [ "$remote_sha" = "$local_sha" ] && continue
+    range="$remote_sha..$local_sha"
   fi
-  [ "$base" = "$local_sha" ] && continue
-  scripts/guard.sh verify-attribution "$base..$local_sha"
+  scripts/guard.sh verify-attribution "$range"
 done
 
 if [ -f go.mod ]; then
