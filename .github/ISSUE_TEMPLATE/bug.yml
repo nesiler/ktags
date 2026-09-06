@@ -1,0 +1,31 @@
+name: Bug
+description: Something behaves wrongly. Evidence first.
+title: "[bug] <what breaks>"
+labels: ["type:bug"]
+body:
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Command, output, `file:line`. What was run and what came back.
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impact
+      description: What breaks today, or under which condition it will.
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why existing tests missed it
+      description: Required. If there is no answer, the finding is incomplete.
+    validations:
+      required: true
+  - type: textarea
+    id: criteria
+    attributes:
+      label: Acceptance criteria
+      description: What must be true when this is fixed (K1..Kn).

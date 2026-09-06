@@ -3,17 +3,15 @@
 Operate customer Kubernetes (RKE2) clusters from your own laptop: a single Go binary with a
 full-screen terminal UI and a classic CLI, driving Ansible playbooks underneath.
 
-Status: **design phase**. See `docs/` for research and decisions, `spikes/` for throwaway TUI
-prototypes used to pick the UI library.
-
-## Layout
+Status: **design phase**. Start with `docs/STATUS.md`; agents start with `AGENTS.md`.
 
 ```
-docs/research/    dated market research that informed the design (sources linked)
-docs/decisions/   architecture decision records (ADRs), numbered, immutable once accepted
-spikes/           throwaway prototypes; never imported by the real code
+docs/STATUS.md    where the project stands, decisions, next steps
+docs/workflow.md  how a task moves from issue to merge
+docs/adr/         architecture decision records
+docs/research/    dated market research with sources
+docs/design/      design notes
+spikes/           throwaway TUI prototypes, own modules, never imported
 ```
 
-## Development
-
-Go 1.27. Each spike has its own `go.mod`; run one with `cd spikes/<name> && go run .`.
+Development: Go 1.27, `make hooks` once, `make check` before every push. License: Apache-2.0.

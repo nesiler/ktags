@@ -1,0 +1,28 @@
+#!/usr/bin/env sh
+# Quick local gate before push: formatting, vet, short tests, attribution scan of pushed commits.
+# The full gate (lint, -race) runs in CI. Skip with --no-verify only for docs-only pushes.
+set -e
+ROOT="$(git rev-parse --show-toplevel)"
+cd "$ROOT"
+
+ZERO=0000000000000000000000000000000000000000
+while read -r _local_ref local_sha _remote_ref remote_sha; do
+  [ "$local_sha" = "$ZERO" ] && continue
+  if [ "$remote_sha" = "$ZERO" ]; then
+    base="$(git merge-base "$local_sha" origin/main 2>/dev/null || true)"
+    [ -n "$base" ] || { echo "pre-push: no base against origin/main; run git fetch origin" >&2; exit 1; }
+  else
+    base="$remote_sha"
+  fi
+  [ "$base" = "$local_sha" ] && continue
+  scripts/guard.sh verify-attribution "$base..$local_sha"
+done
+
+if [ -f go.mod ]; then
+  unformatted="$(gofmt -l $(git ls-files '*.go' | grep -v '^spikes/') 2>/dev/null || true)"
+  if [ -n "$unformatted" ]; then
+    echo "pre-push: gofmt needed:" >&2; echo "$unformatted" | sed 's/^/  /' >&2; exit 1
+  fi
+  go vet ./...
+  go test -short ./...
+fi

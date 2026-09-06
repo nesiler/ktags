@@ -1,0 +1,29 @@
+name: Decision
+description: A design or technology decision that ends in an ADR.
+title: "[decision] <question>"
+labels: ["type:decision"]
+body:
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: One clear question with the options named (A / B / C).
+    validations:
+      required: true
+  - type: textarea
+    id: options
+    attributes:
+      label: Options
+      description: For each option, the strongest argument for and against.
+    validations:
+      required: true
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Constraints that touch this decision
+      description: Only the ones that matter; link to research or ADRs rather than copying.
+  - type: input
+    id: adr
+    attributes:
+      label: Resulting ADR
+      description: Filled when accepted, e.g. docs/adr/0003-secrets-with-age.md

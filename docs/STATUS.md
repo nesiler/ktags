@@ -1,4 +1,4 @@
-# ktags — project status and hand-off (7 September 2026)
+# ktags — project status and hand-off (7 September 2026, updated after workflow setup)
 
 Read this first when resuming work. It summarises what was decided, what exists, and what comes next.
 
@@ -38,8 +38,11 @@ reusable.
 10. **Backups are not manual**: second node becomes the backup peer automatically; scheduled
     backups and health run on the node/in-cluster and are verified from the laptop.
 11. **English everywhere** (code, comments, commits, docs). **No AI co-author signatures in commits.**
-12. Project management: phased plan, ADRs, `docs/` as the source of truth; Claude Code + GitHub
-    workflow to be set up next.
+12. Project management: phased plan, ADRs, `docs/` as the source of truth. Working system set up
+    on 2026-09-07: `AGENTS.md` router, `docs/workflow.md` contract (issue → stage:dev → stage:test
+    → stage:review → merge), skills `task` and `review` in `.agents/skills/`, `reviewer` subagent,
+    guard script + git hooks + CI, tool configs for Claude Code, Codex and OpenCode. Public repo
+    `github.com/nesiler/ktags`, Apache-2.0.
 
 ## What exists in this repo
 
@@ -61,15 +64,14 @@ messages with the next command, atomic access step, and interactive-by-default c
 ## Open questions
 
 - Drop sops in favour of plain age? (recommended yes)
-- License for the public GitHub repo (Apache-2.0 proposed).
 - Before building the real UI: write a short interaction standard (screens, states, keys, error and
   confirmation conventions) and possibly one more prototype pass on the real data model, so the
   many day-2 functions land in a consistent frame.
 
 ## Next steps (in order)
 
-1. Set up the working system: Claude Code configuration (`CLAUDE.md`, agents, model rules),
-   GitHub repo + branch/PR conventions, issue labels mirroring the phases.
+1. ~~Working system~~ done 2026-09-07 (see decision 12 and `docs/workflow.md`). Research behind it:
+   `docs/research/2026-09-07/agentic-dev-workflow.md`.
 2. Write the interaction standard and the "first day" scenario (10 lines) → ADR-001..n.
 3. Phase plan from the function catalogue: Phase 1 = P0 items ops-platform already has + doctor,
    palette UI, direct mode, export/import, k9s bridge, scheduled backups, host firewall.

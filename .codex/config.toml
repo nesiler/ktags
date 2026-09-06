@@ -1,0 +1,6 @@
+# Codex CLI project defaults for ktags. Loaded only after the folder is trusted.
+# Provider, auth, notification and profile keys cannot be set here by design; those live in
+# ~/.codex/config.toml. Instructions come from AGENTS.md, skills from .agents/skills/.
+
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"

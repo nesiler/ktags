@@ -1,0 +1,80 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  guard:
+    name: guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: No AI attribution in commit messages
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            range="${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"
+          else
+            range="${{ github.event.before }}..${{ github.sha }}"
+            git cat-file -e "${{ github.event.before }}^{commit}" 2>/dev/null || range="${{ github.sha }}^..${{ github.sha }}"
+          fi
+          scripts/guard.sh verify-attribution "$range"
+      - name: No attribution in PR body
+        if: github.event_name == 'pull_request'
+        env:
+          BODY: ${{ github.event.pull_request.body }}
+        run: |
+          if printf '%s\n' "$BODY" | grep -iE 'co-authored-by|generated with|claude-session|🤖'; then
+            echo "::error::PR body carries AI attribution"; exit 1
+          fi
+      - name: Skills follow the Agent Skills spec
+        run: |
+          for f in .agents/skills/*/SKILL.md; do
+            d="$(basename "$(dirname "$f")")"
+            n="$(sed -n 's/^name: *//p' "$f" | head -1)"
+            [ "$n" = "$d" ] || { echo "::error file=$f::name '$n' must match directory '$d'"; exit 1; }
+            grep -q '^description:' "$f" || { echo "::error file=$f::missing description"; exit 1; }
+          done
+
+  go:
+    name: go
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: gofmt
+        run: |
+          files="$(git ls-files '*.go' | grep -v '^spikes/' || true)"
+          out="$( [ -z "$files" ] || gofmt -l $files )"
+          if [ -n "$out" ]; then echo "$out"; echo "::error::gofmt needed"; exit 1; fi
+      - run: go vet ./...
+      - run: go build ./...
+      - run: go test -race -count=1 ./...
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.13.2

@@ -1,0 +1,32 @@
+name: Task
+description: A unit of work with acceptance criteria (feature, chore, docs).
+title: "<short imperative title>"
+labels: ["type:feature"]
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: One paragraph. Who needs this and what changes for them.
+    validations:
+      required: true
+  - type: textarea
+    id: criteria
+    attributes:
+      label: Acceptance criteria
+      description: One per line; they become K1..Kn. Each must be checkable with evidence.
+      placeholder: |
+        - K1 ...
+        - K2 ...
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Links to ADRs, research, catalogue entry, related issues.
+  - type: textarea
+    id: out
+    attributes:
+      label: Out of scope
+      description: What this task deliberately does not do.

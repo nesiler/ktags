@@ -1,0 +1,120 @@
+---
+name: task
+description: >
+  Implement one GitHub issue end to end through the dev and test stages: read the issue and
+  its comments, number the acceptance criteria, do a file:line gap analysis before writing
+  code, implement on an issue branch, add tests, run the gates, open a PR from the template
+  with evidence, and hand the PR to review. Use for "implement #12", "do issue 12", "pick up
+  #12", "fix #12". Never reviews or merges its own work.
+license: Apache-2.0
+metadata:
+  argument-hint: "<issue-number>"
+---
+
+# task — implement one issue
+
+Contract: `docs/workflow.md` §2 (stage:dev, stage:test) and §3 (evidence). This skill may change
+source, tests, docs and the PR it opens. It does not approve, merge, or close anything.
+
+`$1` is the issue number. If none was given, ask for it; do not guess.
+
+## 0. Preconditions
+
+```bash
+scripts/guard.sh doctor
+git status --porcelain            # maintainer's own changes? protect them, or stop
+git rev-parse --abbrev-ref HEAD   # expect main, or the issue branch when resuming
+```
+
+Stop and report if `doctor` is red or if the tree holds changes you cannot attribute.
+
+## 1. Read the issue, comments included
+
+```bash
+gh issue view $1 --comments
+```
+
+Comments are as binding as the body; the newest binding comment wins. If a comment reverses an
+earlier decision, say so in the PR.
+
+Label check: the issue must not carry `blocked`. If it does, stop and say what it waits for.
+
+## 2. Number the criteria
+
+Write the acceptance criteria as `#$1-K1 … #$1-Kn`. Keep the numbering in the PR and in review.
+If a criterion is a product question (who should see what, which field is mandatory), stop and
+ask the maintainer; do not answer it yourself.
+
+## 3. Gap analysis before code
+
+For every criterion: what happens today, with `file:line`. Classify:
+
+| State | Meaning |
+|---|---|
+| already met | evidence `file:line`; nothing to build |
+| to build | the real delta |
+| not applicable | out of scope by comment / decision; name the comment |
+
+Post the matrix as an issue comment titled `Plan`. Add a **risk → test** table: each risk that
+could go wrong in this change and the test that will catch it.
+
+Add the label: `gh issue edit $1 --add-label stage:dev`.
+
+## 4. Branch
+
+```bash
+git fetch origin main
+gh issue develop $1 --checkout --base main --name <type>/$1-<slug>
+```
+
+`<type>` is `feat`, `fix`, `chore`, `docs` or `spike`.
+
+## 5. Implement
+
+Only the "to build" rows. Follow `docs/workflow.md §4`. Scope creep goes to a new issue with the
+three-block finding form, not into this branch. Regressions you cause are in scope.
+
+Design decisions with more than one defensible answer: check `docs/adr/` first; if nothing
+covers it, state the choice and the alternative in the PR, and mark it for the maintainer.
+
+## 6. Tests and gates
+
+- Every risk in the plan table has a test.
+- `make check` green. Paste the tail of the output into the PR.
+- New or changed guard/validator: break the code, run the test, see red, restore, see green.
+  Record it in the PR as one line per guard: `broke X in file:line → test Y red → restored`.
+
+## 7. Commit and open the PR
+
+Commits: conventional form `type(scope): summary` in English, no attribution of any kind.
+`scripts/guard.sh check-message` runs from the commit-msg hook; if hooks are inactive, run
+`make hooks` first.
+
+```bash
+git push -u origin HEAD
+gh pr create --draft --fill --body-file <filled template>
+gh issue edit $1 --remove-label stage:dev --add-label stage:test
+```
+
+The PR body follows `.github/PULL_REQUEST_TEMPLATE.md`: criteria matrix with evidence, risk →
+test table, gate output, break-see-red lines, **not done and why**, and `Closes #$1`.
+
+## 8. stage:test — acceptance evidence
+
+- Wait for CI on the PR; fix red.
+- If the change touches real machines or SSH targets, write the exact commands the maintainer
+  should run into a PR comment titled `Acceptance run` and stop. The maintainer runs them and
+  pastes the output. You never run them.
+- When evidence is complete: `gh pr ready` and
+  `gh issue edit $1 --remove-label stage:test --add-label stage:review`.
+
+## Stop conditions
+
+Do not say "ready" or "done" when any of these holds: a criterion has no evidence; `make check`
+was not run in this session; a guard has no break-see-red line; the PR lacks the not-done
+section; the tree has uncommitted changes.
+
+## Never in this session
+
+Review or approve this PR. Merge. Close the issue. Edit `main` directly. Run commands against
+real servers. Change workflow files without an `area:workflow` issue.
