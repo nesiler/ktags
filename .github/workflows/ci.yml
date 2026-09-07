@@ -8,6 +8,9 @@ on:
 permissions:
   contents: read
 
+env:
+  GOTOOLCHAIN: local   # a go.mod toolchain bump must be a reviewed change, not a silent download
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -17,7 +20,7 @@ jobs:
     name: guard
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: No AI attribution in commit messages
@@ -50,16 +53,17 @@ jobs:
     name: go
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-          cache: true
       - name: gofmt
         run: |
           files="$(git ls-files '*.go' | grep -v '^spikes/' || true)"
           out="$( [ -z "$files" ] || gofmt -l $files )"
           if [ -n "$out" ]; then echo "$out"; echo "::error::gofmt needed"; exit 1; fi
+      - name: go.mod and go.sum are tidy
+        run: go mod tidy -diff
       - run: go vet ./...
       - run: go build ./...
       - run: go test -race -count=1 ./...
@@ -70,12 +74,11 @@ jobs:
     name: lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-          cache: true
-      - uses: golangci/golangci-lint-action@v8
+      - uses: golangci/golangci-lint-action@v9
         with:
           version: v2.13.2
 
