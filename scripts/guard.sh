@@ -79,7 +79,7 @@ cmd_doctor() {
   fail() { echo "  FAIL  $1" >&2; rc=3; }
 
   [[ $quiet -eq 1 ]] || echo "ktags guard doctor"
-  for t in go git gh; do
+  for t in go git gh python3; do
     command -v "$t" >/dev/null 2>&1 && ok "$t $(command -v "$t")" || fail "$t missing"
   done
   command -v golangci-lint >/dev/null 2>&1 && ok "golangci-lint" || warn "golangci-lint missing (brew install golangci-lint)"
@@ -92,6 +92,9 @@ cmd_doctor() {
   else
     fail "git hooks inactive — run: make hooks"
   fi
+  for hook in pre-commit commit-msg pre-push; do
+    [[ -x "$ROOT/.githooks/$hook" ]] || fail "$hook hook not executable — run: make hooks"
+  done
 
   if gh auth status >/dev/null 2>&1; then ok "gh authenticated"; else warn "gh not authenticated (gh auth login)"; fi
 
