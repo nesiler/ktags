@@ -114,7 +114,7 @@ never deleted by a playbook; retention is a ktags job. Locks live in the state d
 
 | ops-platform (bastion) | ktags (laptop) |
 |---|---|
-| `/srv/ops/{platform,inventories,logs,status}` | XDG dirs (`development.md §2`); inventories under data, runs inside the customer directory |
+| `/srv/ops/{platform,inventories,logs,status}` | XDG dirs (`development.md §2`); inventories under data, runs under state |
 | `ops_*` variable prefix | `ktags_*` |
 | `result.json` in `/srv/ops/status/<c>/runs/` | `<state>/runs/<customer>/<run_id>/result.json` |
 | bastion user = audit `user` | operator name from the team file, verified against the age identity |
