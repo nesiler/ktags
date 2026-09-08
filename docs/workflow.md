@@ -90,6 +90,7 @@ an advisory review for the current head). It never implements, reviews, merges, 
 child's question. Final approval and merge always belong to the maintainer. Two fix rounds per issue, then `blocked`. Issues
 labelled `live` or `type:decision` are never queued. State lives outside the repo
 (`~/.ktags-dev/`).
+It passes its provider explicitly on every spawn; the runner refuses an ambiguous provider.
 
 ## 3. Evidence standard
 

@@ -34,7 +34,8 @@ scripts/guard.sh doctor
 gh pr view $1 --json number,title,body,headRefName,baseRefName,labels,isDraft,statusCheckRollup
 # Use a dedicated worktree; check cleanliness BEFORE checkout.
 git status --porcelain
-gh pr checkout $1
+gh pr checkout $1 --detach
+test "$(git rev-parse HEAD)" = "$(gh pr view $1 --json headRefOid --jq .headRefOid)"
 scripts/guard.sh verify-attribution origin/main..HEAD
 ```
 

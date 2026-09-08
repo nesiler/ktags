@@ -81,7 +81,6 @@ A customer is a plain Ansible inventory directory under the data dir. It must wo
   known_hosts                pinned host keys of nodes and jump host
   LOCK.yml                   manual lock (owner, reason, since) when present
   README.md                  customer notes (ignored by the inventory plugin)
-  runs/                      per-run directories (see §5)
 ```
 
 `ansible.cfg` (shipped with the content) ignores `known_hosts`, `LOCK.yml`, `README.md`, `runs/`
@@ -90,7 +89,7 @@ the directory.
 
 ## 5. Run directories
 
-`<customer>/runs/<run_id>/` holds `extra_vars.json`, `events.jsonl`, `result.json`,
+`<state>/runs/<customer>/<run_id>/` holds `extra_vars.json`, `events.jsonl`, `result.json`,
 `ansible.log`. `run_id` = `YYYYMMDD-HHMMSS-<4 hex>`. The directory is created before the run and
 never deleted by a playbook; retention is a ktags job. Locks live in the state dir
 (`locks/<customer>.lock`, flock), not in the customer directory.
@@ -117,7 +116,7 @@ never deleted by a playbook; retention is a ktags job. Locks live in the state d
 |---|---|
 | `/srv/ops/{platform,inventories,logs,status}` | XDG dirs (`development.md §2`); inventories under data, runs inside the customer directory |
 | `ops_*` variable prefix | `ktags_*` |
-| `result.json` in `/srv/ops/status/<c>/runs/` | `<customer>/runs/<run_id>/result.json` |
+| `result.json` in `/srv/ops/status/<c>/runs/` | `<state>/runs/<customer>/<run_id>/result.json` |
 | bastion user = audit `user` | operator name from the team file, verified against the age identity |
 | `team/members.yml` in the platform repo | team file in the config dir, exported with the customer |
 | sops vars plugin | per the secrets decision (open) |

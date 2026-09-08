@@ -1,7 +1,7 @@
 # Development guide — Go, CLI, layout, conventions
 
-Binding for every Go change. Rationale for the big choices is in `docs/STATUS.md` (decisions) and
-`docs/adr/`; this file only says how to work within them.
+Binding for every Go change. Rationale for accepted choices is in `docs/adr/`; this file only says
+how to work within them. Local research and planning notes are optional maintainer context.
 
 ## 1. Layout
 
@@ -19,7 +19,7 @@ internal/
   actions/            the action registry (verbs, targets, guards, danger levels) shared by CLI and TUI
 ansible/              playbooks, roles, callback plugin, versions file (embedded or shipped — see plan)
 spikes/               throwaway; own go.mod; not built by CI
-docs/                 status, plan, guides, adr, research, design
+docs/                 published guides and ADRs; optional local plans and research are ignored
 ```
 
 Rules:
@@ -35,16 +35,14 @@ Rules:
 
 ## 2. Config, state and logs on the laptop
 
-Small technical decision (advisors consulted, `docs/plan/decisions.md A2`; revisit only through an
-ADR): XDG base directories on every platform, overridable for tests and unusual setups. Run
-artefacts belong to the customer directory so that history travels with an export; the state dir
-holds only what is personal to this laptop.
+XDG base directories are used on every platform, overridable for tests and unusual setups. Run
+artefacts are laptop state per ADR-0002; an explicit encrypted export decides what history travels.
 
 | What | Default | Override |
 |---|---|---|
 | Config (tool settings, team members file) | `$XDG_CONFIG_HOME/ktags` → `~/.config/ktags` | `KTAGS_CONFIG_DIR` |
-| Customers (one inventory directory each, **including their `runs/` history**, `ansible.md §5`), Ansible content, collections | `$XDG_DATA_HOME/ktags` → `~/.local/share/ktags` | `KTAGS_DATA_DIR` |
-| Audit log, locks, ktags's own logs, temporary files (k9s kubeconfig) | `$XDG_STATE_HOME/ktags` → `~/.local/state/ktags` | `KTAGS_STATE_DIR` |
+| Customers (inventory and secret references), Ansible content, collections | `$XDG_DATA_HOME/ktags` → `~/.local/share/ktags` | `KTAGS_DATA_DIR` |
+| Run records, audit log, locks, ktags logs, temporary files (k9s kubeconfig) | `$XDG_STATE_HOME/ktags` → `~/.local/state/ktags` | `KTAGS_STATE_DIR` |
 | Everything at once (tests, portable) | — | `KTAGS_HOME` = one root with `config/ data/ state/` |
 
 Files that hold secrets or SSH material are `0600`, their directories `0700`. The tool creates
@@ -90,7 +88,7 @@ cannot reach acme-srv-1 (203.0.113.11:22): connection timed out after 10s
 
 - Run `ansible-playbook` as a subprocess with an **allowlisted environment**; never `os.Environ()`.
 - Read structure from the events file and `result.json`, never by parsing stdout.
-- One run = one run directory under the customer's `runs/` with `extra_vars.json` (no secrets,
+- One run = one run directory under the state root's `runs/<customer>/` with `extra_vars.json` (no secrets,
   `0600`), `events.jsonl`, `result.json`, `ansible.log`.
 - Cancellation kills the process group and is recorded as a failed run (`3`).
 

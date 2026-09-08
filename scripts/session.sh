@@ -28,7 +28,7 @@ RUN_ROOT="${KTAGS_RUN_DIR:-$HOME/.ktags-dev/runs}"
 WT_ROOT="${KTAGS_WORKTREE_DIR:-$HOME/.ktags-dev/worktrees}"
 CLAUDE_BIN="${KTAGS_CLAUDE_BIN:-}"
 REPO="${KTAGS_REPO:-nesiler/ktags}"
-DEFAULT_AGENT="${KTAGS_AGENT:-claude}"
+DEFAULT_AGENT="${KTAGS_AGENT:-}"
 
 die() { echo "session.sh: $1" >&2; exit "${2:-10}"; }
 now_iso() { date -u +%Y-%m-%dT%H:%M:%SZ; }
@@ -108,6 +108,7 @@ awaiting_sessions() {
 cmd_doctor() {
   local rc=0 agent="$DEFAULT_AGENT"
   if [[ "${1:-}" == "--agent" ]]; then agent="${2:?agent}"; fi
+  [[ "$agent" =~ ^(claude|codex)$ ]] || die "select the coordinator provider with --agent claude|codex or KTAGS_AGENT" 10
   for t in tmux jq gh git python3; do
     if command -v "$t" >/dev/null 2>&1; then echo "ok    $t"; else echo "FAIL  $t missing"; rc=20; fi
   done
@@ -133,6 +134,7 @@ cmd_usage() {
       *) die "unknown argument: $1" ;;
     esac
   done
+  [[ "$agent" =~ ^(claude|codex)$ ]] || die "select the coordinator provider with --agent claude|codex or KTAGS_AGENT" 10
   need jq
   resolve_agent "$agent" >/dev/null
   if [[ "$agent" == codex ]]; then
@@ -203,6 +205,7 @@ cmd_spawn() {
   if [[ -z "$agent" ]]; then
     case "$stage" in dev) agent="${KTAGS_DEV_AGENT:-$DEFAULT_AGENT}" ;; review) agent="${KTAGS_REVIEW_AGENT:-$DEFAULT_AGENT}" ;; esac
   fi
+  [[ "$agent" =~ ^(claude|codex)$ ]] || die "select the child provider with --agent claude|codex, KTAGS_DEV_AGENT/KTAGS_REVIEW_AGENT, or KTAGS_AGENT" 10
   if [[ -z "$model" ]]; then
     model="$(default_child_model "$agent")"
   fi

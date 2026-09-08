@@ -90,7 +90,7 @@ decisions (what ktags should do for whom) always go to the maintainer.
 make hooks      # once per clone: activate .githooks
 make check      # fmt + vet + lint + test -race (the gate)
 make guard      # doctor: tools, hooks active, gh auth, no attribution in HEAD
-scripts/session.sh doctor   # coordinator prerequisites (tmux, gh auth, state dirs)
+scripts/session.sh doctor --agent codex   # use claude in Claude Code; coordinator prerequisites
 ```
 
 ## Local material and parallel work

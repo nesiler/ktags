@@ -2,7 +2,7 @@ package main
 
 // ktags TUI spike — Bubble Tea v2 / Lip Gloss v2 / Bubbles v2 / huh v2 / bubblezone v2.
 //
-// Everything is fake: no SSH, no Ansible, no disk writes. See SPEC.md.
+// Everything is fake: no SSH, no Ansible, no disk writes.
 
 import (
 	"fmt"

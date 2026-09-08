@@ -1,15 +1,14 @@
 package main
 
 // ktags TUI spike 04 — Bubble Tea v2 / Lip Gloss v2 / Bubbles v2 / huh v2 /
-// bubblezone v2, with the registry-driven command system from
-// docs/design/command-system.md.
+// bubblezone v2, with a registry-driven command system.
 //
 // The dashboard, run view, secret dialog and add-customer form are spike 03's.
 // What is new is that no screen holds a list of commands any more: the palette,
 // the context menu, the hint bar and the help overlay are all generated from
 // `registry` in actions.go, and all three entry points funnel into exec().
 //
-// Everything is fake: no SSH, no Ansible, no disk writes. See SPEC.md.
+// Everything is fake: no SSH, no Ansible, no disk writes.
 
 import (
 	"fmt"

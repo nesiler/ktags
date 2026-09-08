@@ -1,8 +1,7 @@
 # UI guide — the interaction standard for the ktags TUI
 
-Binding for every `internal/tui` change. Built from the four spikes (`spikes/*/NOTES.md`), the
-command-system design (`docs/design/command-system.md`) and the maintainer's choices: spike 03's
-look, spike 01's bottom hint bar, spike 04's command system. Points still open are marked
+Binding for every `internal/tui` change. It records the interaction rules retained from the local
+prototypes and the maintainer's choices. Points still open are marked
 **Open:** and are settled by `type:decision` issues, not by the first PR that touches them.
 
 ## 1. Principles

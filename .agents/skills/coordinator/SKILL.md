@@ -35,7 +35,7 @@ The coordinator never does the work itself:
 
 ```bash
 scripts/guard.sh doctor
-scripts/session.sh doctor
+scripts/session.sh doctor --agent <provider>
 scripts/session.sh status --json          # [] expected; anything `awaiting: true` → do not spawn
 git -C . status --porcelain               # informational: the coordinator does not need a clean tree
 ```
@@ -63,7 +63,11 @@ Print the queue before starting; `--dry-run` stops here.
 
 ## 3. Usage gate — before every spawn
 
-`scripts/session.sh usage --json` → `ok` continue · `hold` (any window ≥ 90 %) wait until the
+Choose `<provider>` from the coordinator that is running this skill (`claude` in Claude Code,
+`codex` in Codex) and pass it explicitly to every `doctor`, `usage` and `spawn` command. Never
+infer it from whichever executable happens to be installed.
+
+`scripts/session.sh usage --agent <provider> --json` → `ok` continue · `hold` (any window ≥ 90 %) wait until the
 `resets` time and re-measure · `unknown` stop and report. For Codex, `provider` means native
 quota enforcement with no percentage preflight; it does not mean unused quota. `spawn` runs the same gate itself. A
 running child is never interrupted for usage reasons.
@@ -73,7 +77,7 @@ running child is never interrupted for usage reasons.
 Write the prompt to `~/.ktags-dev/runs/prompt-<N>-dev.md` (state dir, not the repo), then:
 
 ```bash
-scripts/session.sh spawn --issue N --stage dev --prompt-file ~/.ktags-dev/runs/prompt-N-dev.md --json
+scripts/session.sh spawn --agent <provider> --issue N --stage dev --prompt-file ~/.ktags-dev/runs/prompt-N-dev.md --json
 ```
 
 Prompt (short; the rules live in the skill, do not copy them):
@@ -105,7 +109,7 @@ Override with `KTAGS_CLAUDE_CHILD_MODEL`, `KTAGS_CODEX_CHILD_MODEL`, or `spawn -
 Only after §6 says `dev` is done:
 
 ```bash
-scripts/session.sh spawn --issue N --stage review --pr P --prompt-file ~/.ktags-dev/runs/prompt-N-review.md --json
+scripts/session.sh spawn --agent <provider> --issue N --stage review --pr P --prompt-file ~/.ktags-dev/runs/prompt-N-review.md --json
 ```
 
 ```

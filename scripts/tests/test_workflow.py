@@ -264,6 +264,15 @@ exit 0
             text=True, env=env)
         self.assertEqual(result.splitlines(), ["custom-claude", "custom-codex"])
 
+    def test_runner_refuses_ambiguous_provider(self):
+        env = {key: value for key, value in os.environ.items()
+               if key not in ("KTAGS_AGENT", "KTAGS_DEV_AGENT", "KTAGS_REVIEW_AGENT")}
+        result = subprocess.run(
+            ["bash", str(ROOT / "scripts/session.sh"), "doctor"],
+            text=True, capture_output=True, env=env)
+        self.assertEqual(result.returncode, 10)
+        self.assertIn("select the coordinator provider", result.stderr)
+
     def test_verify_same_account_advisory_and_owner_approval(self):
         with tempfile.TemporaryDirectory() as tmp:
             executable = Path(tmp) / "gh"
