@@ -22,6 +22,7 @@ while read -r _local_ref local_sha _remote_ref remote_sha; do
     range="$remote_sha..$local_sha"
   fi
   scripts/guard.sh verify-attribution "$range"
+  python3 scripts/repo-policy.py range "$range"
 done
 
 if [ -f go.mod ]; then

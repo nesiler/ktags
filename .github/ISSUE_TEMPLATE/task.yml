@@ -30,3 +30,16 @@ body:
     attributes:
       label: Out of scope
       description: What this task deliberately does not do.
+  - type: textarea
+    id: deps
+    attributes:
+      label: Depends on
+      description: One `Depends on #N` line per dependency. The task is eligible only when all are closed.
+      placeholder: |
+        Depends on #12
+  - type: checkboxes
+    id: live
+    attributes:
+      label: Real machines
+      options:
+        - label: This task needs a real machine (lab VM, customer node); add the `live` label. Never run unattended.

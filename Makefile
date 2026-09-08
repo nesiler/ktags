@@ -12,7 +12,11 @@ hooks: ## activate .githooks for this clone (once)
 	chmod +x .githooks/* scripts/guard.sh
 	@echo "hooks active: $$(git config core.hooksPath)"
 
-check: fmt-check vet lint test ## the gate: fmt + vet + lint + test -race
+check: fmt-check vet lint test workflow-test ## the gate: fmt + vet + lint + test -race + workflow checks
+
+.PHONY: workflow-test
+workflow-test: ## offline tests for publication guards and workflow helpers
+	python3 -m unittest discover -s scripts/tests -p 'test_*.py'
 
 fmt: ## gofmt in place
 	@[ -z "$(GOFILES)" ] || gofmt -w $(GOFILES)

@@ -16,6 +16,6 @@ func main() {
 		fmt.Println("ktags", version)
 		return
 	}
-	fmt.Fprintln(os.Stderr, "ktags: nothing to run yet; see docs/STATUS.md")
+	fmt.Fprintln(os.Stderr, "ktags: nothing to run yet; see README.md and the open GitHub issues")
 	os.Exit(2)
 }

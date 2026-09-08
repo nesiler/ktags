@@ -37,7 +37,16 @@ gh issue view $1 --comments
 Comments are as binding as the body; the newest binding comment wins. If a comment reverses an
 earlier decision, say so in the PR.
 
-Label check: the issue must not carry `blocked`. If it does, stop and say what it waits for.
+Label and dependency check:
+
+- `blocked` → stop and say what it waits for.
+- `live` (needs a real machine) → the acceptance run needs the maintainer present. In an
+  unattended session (`KTAGS_SESSION` is set) stop and report `blocked`; otherwise continue and
+  put the machine commands in the PR for the maintainer.
+- Every `Depends on #M` line in the body → `gh issue view M --json state` must be `CLOSED`;
+  otherwise stop and name the open dependency.
+- Read the binding guides for the areas you touch: `docs/guides/` (development, ui, ansible,
+  testing, security). A rule there is a criterion even when the issue does not repeat it.
 
 ## 2. Number the criteria
 
@@ -62,6 +71,9 @@ Add the label: `gh issue edit $1 --add-label stage:dev`.
 
 ## 4. Branch
 
+Use a dedicated worktree for each implementation; never change another session's checkout.
+Follow the repository branch form below (no tool-name prefix).
+
 ```bash
 git fetch origin main
 gh issue develop $1 --checkout --base main --name <type>/$1-<slug>
@@ -75,7 +87,7 @@ Only the "to build" rows. Follow `docs/workflow.md §4`. Scope creep goes to a n
 three-block finding form, not into this branch. Regressions you cause are in scope.
 
 Design decisions with more than one defensible answer: check `docs/adr/` first; if nothing
-covers it, state the choice and the alternative in the PR, and mark it for the maintainer.
+covers it, ask the maintainer before implementation. Do not silently choose.
 
 ## 6. Tests and gates
 
@@ -85,6 +97,10 @@ covers it, state the choice and the alternative in the PR, and mark it for the m
   Record it in the PR as one line per guard: `broke X in file:line → test Y red → restored`.
 
 ## 7. Commit and open the PR
+
+Commit and publication require maintainer authorization for this task. If not already given,
+finish and verify the local changes first, then ask. Unattended runs without commit/publication
+authorization report blocked; a `ready` label alone does not grant it.
 
 Commits: conventional form `type(scope): summary` in English, no attribution of any kind.
 `scripts/guard.sh check-message` runs from the commit-msg hook; if hooks are inactive, run

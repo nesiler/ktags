@@ -40,6 +40,10 @@ jobs:
           if printf '%s\n' "$BODY" | grep -iE 'co-authored-by|generated with|claude-session|🤖'; then
             echo "::error::PR body carries AI attribution"; exit 1
           fi
+      - name: Publication policy (no local documents or known secrets)
+        run: python3 scripts/repo-policy.py index
+      - name: Workflow guard tests
+        run: python3 -m unittest discover -s scripts/tests -p 'test_*.py'
       - name: Skills follow the Agent Skills spec
         run: |
           for f in .agents/skills/*/SKILL.md; do

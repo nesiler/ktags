@@ -5,7 +5,7 @@ description: >
   criteria from the issue, re-run the gates live, read the diff, try to break at least one new
   guard, and record the verdict with gh pr review. Requires a fresh session or the reviewer
   subagent; refuses if this conversation implemented the change. Use for "review PR 14",
-  "review #14", "check this PR". Never edits source; findings go back to the task.
+  "review #14", "check this PR". Never implements fixes; findings go back to the task.
 license: Apache-2.0
 metadata:
   argument-hint: "<pr-number>"
@@ -14,7 +14,7 @@ metadata:
 # review — independent review of one PR
 
 Contract: `docs/workflow.md` §2 (stage:review) and §3 (evidence, findings). This skill writes
-only the review itself (`gh pr review`, PR comments, labels). It never edits source or tests.
+only the review itself (`gh pr review`, PR comments, labels). It never implements fixes. Temporary, restored mutation tests in its own clean worktree are the only editing exception.
 
 `$1` is the PR number.
 
@@ -32,7 +32,10 @@ through the reviewer subagent.
 ```bash
 scripts/guard.sh doctor
 gh pr view $1 --json number,title,body,headRefName,baseRefName,labels,isDraft,statusCheckRollup
-gh pr checkout $1
+# Use a dedicated worktree; check cleanliness BEFORE checkout.
+git status --porcelain
+gh pr checkout $1 --detach
+test "$(git rev-parse HEAD)" = "$(gh pr view $1 --json headRefOid --jq .headRefOid)"
 scripts/guard.sh verify-attribution origin/main..HEAD
 ```
 
@@ -70,8 +73,9 @@ Do not trust the numbers pasted in the PR; record your own. A mismatch is a find
 
 ## 5. Try to break a guard
 
-Pick at least one new or changed guard, validator or safety check that the PR did **not**
-already document breaking. Break it, run the relevant test, expect red, restore with
+Pick at least one new or changed guard, validator or safety check. Prefer a different mutation
+from the implementation evidence. If there is no such guard, record not applicable and why.
+Use only your dedicated, initially clean worktree; never mutate the maintainer's checkout. Break it, run the relevant test, expect red, restore with
 `git checkout -- <file>`, expect green. If the test stays green, that is a High finding: the
 test does not protect the behaviour. Confirm the tree is clean afterwards:
 
@@ -103,14 +107,23 @@ unprotected), `Medium` (works but fragile or unclear), `Low` (style, naming, doc
 ## 8. Verdict
 
 - `ACCEPT` — no Blocker/High findings, all criteria evidenced, gates green here.
-  `gh pr review $1 --approve --body-file <review>`; keep `stage:review` for the maintainer to merge.
-- `REJECT` — otherwise. `gh pr review $1 --request-changes --body-file <review>` and
-  `gh issue edit <N> --remove-label stage:review --add-label stage:dev`.
-- `BLOCKED` — cannot be reviewed (draft, red CI, environment). A PR comment explaining why.
+- `REJECT` — otherwise; move the issue back to `stage:dev` after publishing the findings.
+- `BLOCKED` — cannot be reviewed (draft, red CI, environment); explain the blocker.
 
-The review body starts with the verdict, then the criteria matrix with your own evidence, your
-gate output, the break-see-red line(s), then findings by severity.
+Use `gh pr review $1 --comment --body-file <review>` for ACCEPT and REJECT, even when the
+reviewer and PR author share a GitHub login. Never use `--approve` or `--request-changes`.
+The exact first line is `Review: ACCEPT <full-head-sha>` or `Review: REJECT <full-head-sha>`.
+Read the head from GitHub immediately before publishing; it must match the tested checkout.
+If it changed, rerun review for that head instead of attaching stale evidence.
+Follow with the criteria matrix, gate output, mutation evidence, and findings by severity.
+
+This advisory verdict is not maintainer approval. Only the maintainer posts
+`Maintainer: APPROVE <full-head-sha>` after reviewing the evidence, or
+`Maintainer: REVOKE <full-head-sha>` to withdraw it. Agents never post either line.
+The maintainer then squash-merges their own PR with CI green. A new head needs a fresh review
+and approval. `scripts/pr-state.py --pr N` verifies the recorded state without writing anything.
 
 ## Never in this session
 
-Fix a finding. Edit source or tests. Merge. Close the issue. Approve a PR you implemented.
+Implement a fix. Leave mutation changes behind. Merge. Close the issue. Submit maintainer approval.
+Review a PR whose implementation context you inherited.
