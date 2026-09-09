@@ -62,8 +62,15 @@ default_child_model() {
   esac
 }
 
+toml_quote() {
+  local value="$1"
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  printf '"%s"' "$value"
+}
+
 launch_command() {
-  local agent="$1" bin="$2" model="$3" effort="$4" rc="$5" opts=""
+  local agent="$1" bin="$2" model="$3" effort="$4" rc="$5" state_dir="${6:-$RUN_ROOT}" opts=""
   [[ -n "$model" ]] && opts="--model $(printf '%q' "$model")"
   case "$agent" in
     claude)
@@ -71,8 +78,13 @@ launch_command() {
       printf '%s --remote-control %s %s\n' "$(printf '%q' "$bin")" "$(printf '%q' "$rc")" "$opts"
       ;;
     codex)
+      local permission_profile
+      permission_profile="permissions.ktags_coordinator={ extends=\":workspace\", filesystem={ $(toml_quote "$ROOT/.git")=\"write\", $(toml_quote "$ROOT/docs")=\"read\", $(toml_quote "$state_dir")=\"write\" }, network={ enabled=true, domains={ \"**.github.com\"=\"allow\", \"**.githubusercontent.com\"=\"allow\", \"proxy.golang.org\"=\"allow\", \"sum.golang.org\"=\"allow\", \"storage.googleapis.com\"=\"allow\" } } }"
       [[ -n "$effort" ]] && opts="$opts -c $(printf '%q' "model_reasoning_effort=\"$effort\"")"
-      printf '%s --sandbox workspace-write --ask-for-approval on-request %s\n' "$(printf '%q' "$bin")" "$opts"
+      opts="$opts -c $(printf '%q' 'default_permissions="ktags_coordinator"')"
+      opts="$opts -c $(printf '%q' 'features.network_proxy=true')"
+      opts="$opts -c $(printf '%q' "$permission_profile")"
+      printf '%s --ask-for-approval never %s\n' "$(printf '%q' "$bin")" "$opts"
       ;;
     *) die "unsupported provider" 10 ;;
   esac
@@ -267,7 +279,7 @@ cmd_spawn() {
     >"$dir/meta.json"
 
   local launch
-  launch="$(launch_command "$agent" "$agent_bin" "$model" "$effort" "$rc")"
+  launch="$(launch_command "$agent" "$agent_bin" "$model" "$effort" "$rc" "$dir")"
   cat >"$dir/run.sh" <<RUNNER
 #!/usr/bin/env bash
 cd $(printf '%q' "$workdir")

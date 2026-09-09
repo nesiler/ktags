@@ -141,9 +141,12 @@ are never committed. See `.gitignore`. Optional local context is read from `KTAG
 in worktrees, never copied into a PR. CI checks shared contracts and workflow tests without
 requiring private plan files. Rules do not erase already published history.
 
-Codex hooks need explicit trust through `/hooks` in the CLI. Runtime permission overrides win
-over project defaults; verify the active mode when starting a session. Hooks catch direct secret
-paths and prohibited commands; they are not a filesystem sandbox for arbitrary code execution.
+Codex hooks need explicit trust through `/hooks` in the CLI. Interactive sessions use the project
+`:workspace` permission profile and on-request approvals. Coordinator-spawned Codex children use a
+non-interactive profile that grants the active worktree, shared Git metadata, the current run state
+directory, GitHub, and required Go module services; denied operations fail instead of prompting.
+Runtime permission overrides win over project defaults. Hooks catch direct secret paths and
+prohibited commands; they are not a filesystem sandbox for arbitrary code execution.
 
 ## 6. Models
 
