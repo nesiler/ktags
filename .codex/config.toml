@@ -3,7 +3,7 @@
 # ~/.codex/config.toml. Instructions come from AGENTS.md, skills from .agents/skills/.
 
 approval_policy = "on-request"
-sandbox_mode = "workspace-write"
+default_permissions = ":workspace"
 model = "gpt-6-astra"
 
 [agents]

@@ -103,6 +103,10 @@ issue, not from the review", spawn with `--round 2`.
 Select providers with `KTAGS_DEV_AGENT` and `KTAGS_REVIEW_AGENT`, or `spawn --agent`.
 Fresh Claude children default to `opus`; fresh Codex children default to `gpt-5.6-sol`.
 Override with `KTAGS_CLAUDE_CHILD_MODEL`, `KTAGS_CODEX_CHILD_MODEL`, or `spawn --model`.
+Codex children run with approval prompts disabled. Their permission profile writes only the active
+worktree, shared Git metadata needed for commits, and that run's state directory; command network
+access is restricted to GitHub and the Go module services used by the gates. A denied operation
+fails and must be reported as blocked instead of waiting for maintainer input.
 
 ## 5. Stage `review`
 

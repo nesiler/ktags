@@ -241,7 +241,15 @@ exit 0
                 self.assertNotIn("--dangerously-skip-permissions", args)
                 if provider == "codex":
                     self.assertIn('model_reasoning_effort="high"', args)
-                    self.assertIn("workspace-write", args)
+                    self.assertEqual(args[args.index("--ask-for-approval") + 1], "never")
+                    self.assertIn('default_permissions="ktags_coordinator"', args)
+                    self.assertIn("features.network_proxy=true", args)
+                    permission = next(arg for arg in args if arg.startswith("permissions.ktags_coordinator="))
+                    self.assertIn('extends=":workspace"', permission)
+                    self.assertIn('network={ enabled=true', permission)
+                    self.assertIn('"**.github.com"="allow"', permission)
+                    self.assertIn(f'"{ROOT / ".git"}"="write"', permission)
+                    self.assertNotIn("danger-full-access", args)
                 else:
                     self.assertIn("--remote-control", args)
 
