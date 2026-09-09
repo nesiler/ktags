@@ -1,0 +1,59 @@
+package actions_test
+
+import (
+	"encoding/json"
+	"os/exec"
+	"strings"
+	"testing"
+)
+
+const module = "github.com/nesiler/ktags"
+
+func TestCorePackagesDoNotDependOnAdapters(t *testing.T) {
+	protected := []string{
+		module + "/internal/actions",
+		module + "/internal/core/domain",
+	}
+	forbidden := []string{
+		module + "/internal/cli",
+		module + "/internal/tui",
+		module + "/internal/transport",
+		"charm.land/bubbletea",
+		"github.com/spf13/cobra",
+	}
+
+	for _, packagePath := range protected {
+		t.Run(strings.TrimPrefix(packagePath, module+"/"), func(t *testing.T) {
+			imports := packageDependencies(t, packagePath)
+			for _, dependency := range imports {
+				for _, forbiddenRoot := range forbidden {
+					if dependency == forbiddenRoot || strings.HasPrefix(dependency, forbiddenRoot+"/") {
+						t.Fatalf("%s must not depend on adapter package %s", packagePath, dependency)
+					}
+				}
+			}
+		})
+	}
+}
+
+func packageDependencies(t *testing.T, packagePath string) []string {
+	t.Helper()
+	command := exec.Command("go", "list", "-deps", "-json", packagePath)
+	output, err := command.Output()
+	if err != nil {
+		t.Fatalf("list dependencies for %s: %v", packagePath, err)
+	}
+
+	decoder := json.NewDecoder(strings.NewReader(string(output)))
+	var imports []string
+	for decoder.More() {
+		var listedPackage struct {
+			ImportPath string
+		}
+		if err := decoder.Decode(&listedPackage); err != nil {
+			t.Fatalf("decode dependency for %s: %v", packagePath, err)
+		}
+		imports = append(imports, listedPackage.ImportPath)
+	}
+	return imports
+}
