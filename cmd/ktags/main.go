@@ -1,21 +1,15 @@
 // Command ktags installs and operates customer Kubernetes clusters from the operator's laptop.
-//
-// This is the entry point placeholder; the core is ported from ops-platform in Phase 1.
 package main
 
 import (
-	"fmt"
 	"os"
+
+	"github.com/nesiler/ktags/internal/app"
 )
 
 // version is set by GoReleaser through -ldflags at release time.
 var version = "dev"
 
 func main() {
-	if len(os.Args) > 1 && (os.Args[1] == "version" || os.Args[1] == "--version") {
-		fmt.Println("ktags", version)
-		return
-	}
-	fmt.Fprintln(os.Stderr, "ktags: nothing to run yet; see README.md and the open GitHub issues")
-	os.Exit(2)
+	os.Exit(app.Run(version, os.Args[1:], os.Stdout, os.Stderr))
 }
