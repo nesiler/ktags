@@ -340,5 +340,33 @@ if args[:2]==["pr","checks"] and os.environ.get("FAKE_CI")=="FAILURE":
                 self.assertEqual(data["verdict"], "accept")
 
 
+class GuardInventoryContractTests(unittest.TestCase):
+    """#35: the guard inventory must stay in the task skill, the template and the review."""
+
+    def text(self, path):
+        return (ROOT / path).read_text()
+
+    def test_task_skill_requires_inventory_before_ready(self):
+        text = self.text(".agents/skills/task/SKILL.md")
+        self.assertIn("**Guard inventory.** Before `gh pr ready`", text)
+        self.assertIn("**every** new or changed refusal, validation, exclusivity", text)
+        self.assertIn("`not a guard, because …`", text)
+        self.assertIn("the PR lacks a complete guard inventory", text)
+
+    def test_template_has_inventory_table(self):
+        text = self.text(".github/PULL_REQUEST_TEMPLATE.md")
+        self.assertIn("## Guard inventory", text)
+        self.assertIn("Break-see-red, or `not a guard, because …`", text)
+
+    def test_review_checks_inventory_against_diff(self):
+        text = self.text(".agents/skills/review/SKILL.md")
+        self.assertIn("## 5. Check the guard inventory against the diff", text)
+        self.assertIn("no row in the table is a **High** finding", text)
+        self.assertIn("A reason that is false", text)
+
+    def test_workflow_names_the_cause(self):
+        self.assertIn("Cause (#35)", self.text("docs/workflow.md"))
+
+
 if __name__ == "__main__":
     unittest.main()

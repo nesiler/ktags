@@ -19,9 +19,14 @@ make check
 ...
 ```
 
-## Break-see-red
+## Guard inventory
 
-- broke `<what>` in `file:line` → `<test>` red → restored → green
+Every new or changed refusal, validation, exclusivity or error branch in the diff, not only
+the one the issue names. One row each; nothing in the diff is left out.
+
+| # | Guard / branch | `file:line` | Break-see-red, or `not a guard, because …` |
+|---|---|---|---|
+| G1 | | | broke `<what>` → `<test>` red → restored → green |
 
 ## Not done and why
 
