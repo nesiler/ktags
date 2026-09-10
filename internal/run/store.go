@@ -256,9 +256,18 @@ func (s *Store) find(id string) (string, error) {
 	if !runIDPattern.MatchString(id) {
 		return "", &Error{Problem: fmt.Sprintf("%q is not a run ID", id), Next: "copy the run ID from the run list"}
 	}
-	matches, err := filepath.Glob(filepath.Join(s.root, "*", id))
-	if err != nil {
+	// The state root is a literal path: listing it, instead of globbing, keeps characters such
+	// as '[', '*' or '?' in the root from being read as a pattern.
+	entries, err := os.ReadDir(s.root)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return "", &Error{Run: id, Problem: "cannot search the runs directory", Next: "check the permissions of the state root", Err: err}
+	}
+	var matches []string
+	for _, entry := range entries {
+		dir := filepath.Join(s.root, entry.Name(), id)
+		if _, err := os.Lstat(dir); err == nil {
+			matches = append(matches, dir)
+		}
 	}
 	switch len(matches) {
 	case 0:
