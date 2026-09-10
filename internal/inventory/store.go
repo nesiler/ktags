@@ -8,6 +8,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
 
 	"github.com/goccy/go-yaml"
 )
@@ -43,11 +46,15 @@ func Load(ctx context.Context, dir string) (Record, error) {
 		return Record{}, &Error{File: file, Problem: "cannot read the customer record", Next: "check that the customer exists and the file is readable", Err: err}
 	}
 	var r Record
-	dec := yaml.NewDecoder(bytes.NewReader(data), yaml.DisallowUnknownField())
+	dec := yaml.NewDecoder(bytes.NewReader(data), yaml.DisallowUnknownField(), yaml.CustomUnmarshaler(strictInt))
 	if err := dec.Decode(&r); err != nil {
 		// The decoder quotes the offending source line; drop it so a misplaced secret stays out
 		// of the message. Only the position survives.
-		return Record{}, &Error{File: file, Problem: "cannot parse the customer record" + position(err), Next: "fix the YAML syntax or remove the unknown or duplicate key"}
+		return Record{}, &Error{File: file, Problem: "cannot parse the customer record" + position(err), Next: "fix the YAML syntax, write numbers without quotes, or remove the unknown or duplicate key"}
+	}
+	// A second document would escape the strict decoding above and be dropped by the next Save.
+	if err := dec.Decode(&Record{}); !errors.Is(err, io.EOF) {
+		return Record{}, &Error{File: file, Problem: "the customer record holds more than one YAML document" + position(err), Next: "remove everything after the first document"}
 	}
 	if err := check(dir, r); err != nil {
 		return Record{}, &Error{File: file, Problem: "the customer record is refused", Next: "fix the listed fields in the file", Err: err}
@@ -108,7 +115,27 @@ func check(dir string, r Record) error {
 	return err
 }
 
+var plainInt = regexp.MustCompile(`^[0-9]+$`)
+
+// strictInt refuses a number the decoder would otherwise coerce: quoted ("1"), tagged (!!str 1),
+// float (1.0), hex (0x1) or signed (+1). Only a plain decimal scalar fills an int field.
+func strictInt(n *int, raw []byte) error {
+	s := strings.TrimSpace(string(raw))
+	if !plainInt.MatchString(s) {
+		return errors.New("must be a plain decimal number")
+	}
+	v, err := strconv.Atoi(s)
+	if err != nil {
+		return errors.New("number out of range")
+	}
+	*n = v
+	return nil
+}
+
 func position(err error) string {
+	if err == nil {
+		return ""
+	}
 	var syntax yaml.Error
 	if errors.As(err, &syntax) && syntax.GetToken() != nil {
 		p := syntax.GetToken().Position

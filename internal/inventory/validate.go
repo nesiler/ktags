@@ -176,12 +176,15 @@ func validHost(value string) bool {
 	if value == "" || len(value) > 253 {
 		return false
 	}
-	for _, label := range strings.Split(strings.ToLower(value), ".") {
+	labels := strings.Split(strings.ToLower(value), ".")
+	for _, label := range labels {
 		if !hostnameLabel.MatchString(label) {
 			return false
 		}
 	}
-	return true
+	// A name whose last label is all digits is a mistyped IP address (256.1.1.1, 10.0.0.01,
+	// 1.2.3), not a hostname: top-level domains are never numeric (RFC 3696 §2).
+	return strings.Trim(labels[len(labels)-1], "0123456789") != ""
 }
 
 // rancherURL accepts an https URL with a host and an optional path. Credentials, queries and

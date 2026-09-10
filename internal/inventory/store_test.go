@@ -151,6 +151,13 @@ func TestLoadRefusesMalformedFiles(t *testing.T) {
 		{"duplicate key", strings.Replace(valid, "id: main\n", "id: main\n  id: other\n", 1), "parse"},
 		{"directory mismatch", strings.Replace(valid, "id: acme", "id: globex", 1), "directory name"},
 		{"invalid content", strings.Replace(valid, "environment: test", "environment: dev", 1), "environment"},
+		{"second document", valid + "---\nktags_extra: {password: tskey-example-leak}\n", "more than one YAML document"},
+		{"second valid document", valid + "---\n" + valid, "more than one YAML document"},
+		{"quoted schema", strings.Replace(valid, "ktags_schema: 1", `ktags_schema: "1"`, 1), "parse"},
+		{"tagged string schema", strings.Replace(valid, "ktags_schema: 1", "ktags_schema: !!str 1", 1), "parse"},
+		{"float schema", strings.Replace(valid, "ktags_schema: 1", "ktags_schema: 1.0", 1), "parse"},
+		{"hex schema", strings.Replace(valid, "ktags_schema: 1", "ktags_schema: 0x1", 1), "parse"},
+		{"quoted port", strings.Replace(valid, "port: 22", `port: "22"`, 1), "parse"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -169,13 +176,21 @@ func TestLoadRefusesMalformedFiles(t *testing.T) {
 		})
 	}
 
-	t.Run("valid baseline", func(t *testing.T) {
-		dir := customerDir(t, "acme")
-		writeRaw(t, dir, valid)
-		if _, err := Load(context.Background(), dir); err != nil {
-			t.Fatalf("baseline refused: %v", err)
-		}
-	})
+	baselines := map[string]string{
+		"valid baseline":           valid,
+		"document start marker":    "---\n" + valid,
+		"document end marker":      valid + "...\n",
+		"comment after the schema": strings.Replace(valid, "ktags_schema: 1", "ktags_schema: 1 # schema", 1),
+	}
+	for name, content := range baselines {
+		t.Run(name, func(t *testing.T) {
+			dir := customerDir(t, "acme")
+			writeRaw(t, dir, content)
+			if _, err := Load(context.Background(), dir); err != nil {
+				t.Fatalf("baseline refused: %v", err)
+			}
+		})
+	}
 }
 
 func TestSaveRefusesDirectoryMismatch(t *testing.T) {
