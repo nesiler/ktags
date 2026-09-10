@@ -13,6 +13,7 @@ func TestCorePackagesDoNotDependOnAdapters(t *testing.T) {
 	protected := []string{
 		module + "/internal/actions",
 		module + "/internal/core/domain",
+		module + "/internal/mask",
 	}
 	forbidden := []string{
 		module + "/internal/cli",
@@ -43,6 +44,31 @@ func TestCorePackagesDoNotDependOnAdapters(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// The mask runs at every output boundary, so it must be importable by any package without
+// pulling anything but the standard library along (issue #33).
+func TestMaskUsesOnlyStandardLibrary(t *testing.T) {
+	packagePath := module + "/internal/mask"
+	command := exec.Command("go", "list", "-deps", "-json", packagePath)
+	output, err := command.Output()
+	if err != nil {
+		t.Fatalf("list dependencies for %s: %v", packagePath, err)
+	}
+
+	decoder := json.NewDecoder(strings.NewReader(string(output)))
+	for decoder.More() {
+		var listedPackage struct {
+			ImportPath string
+			Standard   bool
+		}
+		if err := decoder.Decode(&listedPackage); err != nil {
+			t.Fatalf("decode dependency for %s: %v", packagePath, err)
+		}
+		if !listedPackage.Standard && listedPackage.ImportPath != packagePath {
+			t.Fatalf("%s must depend on the standard library only, found %s", packagePath, listedPackage.ImportPath)
+		}
 	}
 }
 
