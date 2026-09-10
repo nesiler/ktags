@@ -76,7 +76,8 @@ no plain-text file is written.
 <customers>/acme/
   hosts.yml                  written by ktags (groups rke2_server, rke2_agent, node fields)
   group_vars/all/
-    cluster.yml              human-edited: ktags_* block + cluster variables (plain text, no Jinja in the ktags block)
+    ktags.yml                written by ktags: customer and cluster identity, nodes, access (no secrets)
+    cluster.yml              human-edited cluster variables only
     versions.yml             version pins for this customer (upgrade = a deliberate change here)
     connection.yml           generated from the access mode (SSH args, jump ProxyCommand)
     secrets.age              encrypted store (ADR-0004); Ansible's group_vars loader skips it
