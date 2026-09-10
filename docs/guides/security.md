@@ -24,13 +24,14 @@ their results with `"censored"`. A test proves the mask on each pattern.
 
 - Per customer, one encrypted secrets store inside the customer directory; the encryption
   boundary is the `secrets` package and nothing else reads or writes the store.
-- **Open (decision):** sops + age versus plain age. Whatever is chosen: recipients are the operators
-  responsible for that customer (age public keys from the team file); the private identity lives in
-  the operator's config dir with `0600` (or a hardware-backed plugin identity); ktags never copies
-  an identity anywhere.
+- Store format per ADR-0004: plain age through `filippo.io/age`, one armored file per customer
+  at `group_vars/all/secrets.age`. Recipients are the operators responsible for that customer
+  (age recipients from the operator roster); a store with fewer than two recipients is a doctor
+  warning. The private identity lives in the operator's config dir with `0600` (or is a
+  hardware-backed plugin identity); ktags never copies an identity anywhere.
 - Decrypted values live in memory for the duration of the run. If Ansible needs them, they are
-  passed through a mechanism that leaves no plain-text file behind after the process exits (in-process
-  vars plugin, or a file descriptor inherited by the child). Never `-e key=value`, never `$ENV`.
+  passed as an extra-vars file read from a pipe inherited by the child (ADR-0004), which leaves
+  no plain-text file behind. Never `-e key=value`, never `$ENV`.
 - `secret show <customer> <key>` prints the value **only** to stdout, requires `--reason`, and
   writes key name + reason (never the value) to the audit log. In the TUI the reveal dialog clears
   itself after 15 seconds and offers copy-to-clipboard; the clipboard content is not logged.
@@ -59,7 +60,7 @@ their results with `"censored"`. A test proves the mask on each pattern.
 
 ## 4. Subprocesses
 
-- Ansible, sops (if kept), age tools, k9s, `uv` run with an **allowlisted** environment:
+- Ansible, age and its plugins, k9s, `uv` run with an **allowlisted** environment:
   `PATH HOME LANG LC_ALL TERM USER XDG_*`, `SSH_AUTH_SOCK`, plus the `ANSIBLE_*`/`KTAGS_*`
   variables ktags sets. Never the inherited environment.
 - Every subprocess runs in its own process group; cancellation kills the group; timeouts are
