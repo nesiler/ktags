@@ -145,6 +145,8 @@ Codex hooks need explicit trust through `/hooks` in the CLI. Interactive session
 `:workspace` permission profile and on-request approvals. Coordinator-spawned Codex children use a
 non-interactive profile that grants the active worktree, shared Git metadata, the current run state
 directory, GitHub, and required Go module services; denied operations fail instead of prompting.
+Coordinator-spawned Claude children run with `--dangerously-skip-permissions` in their own
+worktree; the shared PreToolUse hook still applies to them.
 Runtime permission overrides win over project defaults. Hooks catch direct secret paths and
 prohibited commands; they are not a filesystem sandbox for arbitrary code execution.
 

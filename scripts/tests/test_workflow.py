@@ -238,7 +238,6 @@ exit 0
                 )
                 args = json.loads(result.stdout)
                 self.assertEqual(args[args.index("--model") + 1], model)
-                self.assertNotIn("--dangerously-skip-permissions", args)
                 if provider == "codex":
                     self.assertIn('model_reasoning_effort="high"', args)
                     self.assertEqual(args[args.index("--ask-for-approval") + 1], "never")
@@ -250,8 +249,11 @@ exit 0
                     self.assertIn('"**.github.com"="allow"', permission)
                     self.assertIn(f'"{ROOT / ".git"}"="write"', permission)
                     self.assertNotIn("danger-full-access", args)
+                    self.assertNotIn("--dangerously-skip-permissions", args)
                 else:
                     self.assertIn("--remote-control", args)
+                    # Auto mode denied gates and commits in an unattended child (#25).
+                    self.assertIn("--dangerously-skip-permissions", args)
 
     def test_codex_launch_omits_model_only_when_caller_has_not_resolved_it(self):
         result = subprocess.check_output(

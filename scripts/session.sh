@@ -75,7 +75,9 @@ launch_command() {
   case "$agent" in
     claude)
       [[ -n "$effort" ]] && opts="$opts --effort $(printf '%q' "$effort")"
-      printf '%s --remote-control %s %s\n' "$(printf '%q' "$bin")" "$(printf '%q' "$rc")" "$opts"
+      # Unattended children run without permission prompts inside their own worktree; the
+      # project PreToolUse hook still refuses secret paths, main pushes and native approvals.
+      printf '%s --remote-control %s --dangerously-skip-permissions %s\n' "$(printf '%q' "$bin")" "$(printf '%q' "$rc")" "$opts"
       ;;
     codex)
       local permission_profile
