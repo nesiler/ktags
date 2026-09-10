@@ -43,7 +43,12 @@ artefacts are laptop state per ADR-0002; an explicit encrypted export decides wh
 | Config (tool settings, team members file) | `$XDG_CONFIG_HOME/ktags` → `~/.config/ktags` | `KTAGS_CONFIG_DIR` |
 | Customers (inventory and secret references), Ansible content, collections | `$XDG_DATA_HOME/ktags` → `~/.local/share/ktags` | `KTAGS_DATA_DIR` |
 | Run records, audit log, locks, ktags logs, temporary files (k9s kubeconfig) | `$XDG_STATE_HOME/ktags` → `~/.local/state/ktags` | `KTAGS_STATE_DIR` |
-| Everything at once (tests, portable) | — | `KTAGS_HOME` = one root with `config/ data/ state/` |
+| Runtime: local service socket and other ephemeral files (ADR-0001) | `$XDG_RUNTIME_DIR/ktags` when set and absolute → `<state>/run` | `KTAGS_RUNTIME_DIR` |
+| Everything at once (tests, portable) | — | `KTAGS_HOME` = one root with `config/ data/ state/ runtime/` |
+
+`internal/paths` resolves these roots. A specific override wins over `KTAGS_HOME`, which wins over
+XDG. Empty values count as unset. A relative `KTAGS_*` value is refused; a relative XDG value is
+ignored, as the XDG specification requires.
 
 Files that hold secrets or SSH material are `0600`, their directories `0700`. The tool creates
 directories itself with the right mode and refuses to run on a directory with looser permissions.
