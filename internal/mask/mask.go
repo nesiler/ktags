@@ -18,14 +18,22 @@ type pattern struct {
 // Building blocks of the token/password patterns. Every value alternative is one capture group.
 const (
 	// sensitiveKey is a key or flag name containing token or password, e.g. rke2_token, --password.
-	sensitiveKey = `[A-Za-z0-9_.-]*(?:token|password)[A-Za-z0-9_.-]*`
+	// Every pattern using it is case-insensitive.
+	sensitiveKey = `[a-z0-9_.-]*(?:token|password)[a-z0-9_.-]*`
 	// quotedValue: a closed double- or single-quoted value ('' is YAML's escaped quote); a quote
 	// that never closes (a truncated line) masks to the end of the line.
 	quotedValue = `"((?:[^"\\]|\\.)*)"|'((?:[^']|'')*)'|"([^\n]*)|'([^\n]*)`
 	// escapedValue: a value quoted with \" inside a JSON string, e.g. Ansible msg or stdout.
-	escapedValue = `\\+"((?:[^"\\]|\\[^"\\])*)\\+"|\\+"([^\n]*)`
-	// blockValue: a YAML block scalar; the value is every following indented line.
-	blockValue = `[|>][-+1-9]{0,2}[ \t]*(?:#[^\n]*)?\n(?:[ \t]*\n)*[ \t]+([^\n]*(?:\n(?:[ \t]*\n)*[ \t]+[^\n]*)*)`
+	escapedValue = `\\+"((?:[^\\]|\\[^"\\])*)\\+"|\\+"([^\n]*)`
+	// blockValue: a YAML block scalar; the value is every following indented line. Lines may end
+	// in \r\n; the \r stays outside the masked value.
+	blockValue = `[|>][-+0-9]*[ \t]*(?:#[^\n]*)?\r?\n(?:[ \t]*\r?\n)*[ \t]+` +
+		`([^\r\n]*(?:\r?\n(?:\r?\n)*[ \t]+[^\r\n]*)*)`
+	// separator: YAML/JSON ':', INI or flag '=', and the '=>' hash arrow.
+	separator = `[ \t]*(?:=>?|:)[ \t]*`
+	// yamlTag: an explicit YAML tag before the value. !!str and !!binary stay readable; any other
+	// word starting with ! (!vault, or a password such as "!abc def") is masked with the value.
+	yamlTag = `(?:!!(?:str|binary)[ \t]+|(!\S*)[ \t]*)?`
 )
 
 // patterns follow security.md §1. Unquoted values stop at white space or a quote: over-masking the
@@ -41,18 +49,18 @@ var patterns = []pattern{
 	{re: regexp.MustCompile(`K10[0-9a-fA-F]{20,}(?:::[^\s"']*)?`)},
 	// HTTP bearer credentials; the scheme name is case-insensitive (RFC 9110 §11.1).
 	{re: regexp.MustCompile(`(?i)bearer[ \t]+([^\s"']+)`), valueOnly: true},
-	// token/password key-value pairs in YAML, JSON (also escaped inside a JSON string), INI or
-	// --flag=value form; the key stays readable.
+	// token/password key-value pairs in YAML, JSON (also escaped inside a JSON string), INI,
+	// --flag=value or key => value form; the key stays readable.
 	{
-		re: regexp.MustCompile(`(?i)` + sensitiveKey + `\\*["']?[ \t]*[:=][ \t]*(?:` +
+		re: regexp.MustCompile(`(?i)` + sensitiveKey + `\\*["']?` + separator + yamlTag + `(?:` +
 			quotedValue + `|` + escapedValue + `|` + blockValue + `|([^\s"']+))`),
 		valueOnly: true,
 	},
 	// Command lines: --token value, -password value. The flag starts a word and the value does
 	// not look like the next flag.
 	{
-		re: regexp.MustCompile(`(?i)(?:^|[\s"'])--?` + sensitiveKey + `[ \t]+(?:` +
-			quotedValue + `|([^\s"'-][^\s"']*))`),
+		re: regexp.MustCompile(`(?i)(?:^|[\s"'])-` + sensitiveKey + `[ \t]+(?:` +
+			quotedValue + `|([^\s-][^\s"']*))`),
 		valueOnly: true,
 	},
 }
