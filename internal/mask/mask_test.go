@@ -24,7 +24,7 @@ func TestMaskReplacesEachPattern(t *testing.T) {
 		{"age identity", "identity " + fakeAge + " loaded", "identity [masked] loaded"},
 		{"age identity lower case", "id age-secret-key-1fakeexample ok", "id [masked] ok"},
 		{"token yaml", "rke2_token: abc123 # set", "rke2_token: [masked] # set"},
-		{"token flag", "run --token=abc123 --debug", "run --token=[masked] --debug"},
+		{"token flag", "run --token=EXAMPLE --debug", "run --token=[masked] --debug"},
 		{"token json", `{"api_token": "a b\"c", "user": "ops"}`, `{"api_token": "[masked]", "user": "ops"}`},
 		{"password yaml", "bootstrapPassword: hunter2\nnext: 1", "bootstrapPassword: [masked]\nnext: 1"},
 		{"password single quoted", "password: 'p w'", "password: '[masked]'"},
