@@ -35,6 +35,21 @@ func TestMaskReplacesEachPattern(t *testing.T) {
 		{"rke2 full token", "use K10" + fakeHash + "::server:fakepass end", "use [masked] end"},
 		{"bearer header", "Authorization: Bearer eyJfake.payload.sig rest", "Authorization: Bearer [masked] rest"},
 		{"bearer lower case", "authorization: bearer token-abc:def", "authorization: bearer [masked]"},
+		{"password escaped json", `{\"password\":\"hunter2\",\"user\":\"ops\"}`, `{\"password\":\"[masked]\",\"user\":\"ops\"}`},
+		{"token escaped json in msg", `"msg": "{\"rke2_token\": \"abc123\"}"`, `"msg": "{\"rke2_token\": \"[masked]\"}"`},
+		{"token double escaped json", `{\\\"token\\\":\\\"abc\\\"}`, `{\\\"token\\\":\\\"[masked]\\\"}`},
+		{"password escaped unterminated", `{\"password\":\"hunt`, `{\"password\":\"[masked]`},
+		{"password unterminated double quote", "password: \"hunter2\nnext: 1", "password: \"[masked]\nnext: 1"},
+		{"password unterminated single quote", "password: 'hunter2", "password: '[masked]"},
+		{"password yaml escaped single quote", "password: 'it''s' ok", "password: '[masked]' ok"},
+		{"password block scalar", "password: >-\n  hunter2\n  more\nnext: 1", "password: >-\n  [masked]\nnext: 1"},
+		{"token literal block with blank line", "token: |\n  abc\n\n  def\nuser: ops", "token: |\n  [masked]\nuser: ops"},
+		{"token block scalar with comment", "token: |+2 # note\n    abc", "token: |+2 # note\n    [masked]"},
+		{"password flag with space", "ktags run --password hunter2 --debug", "ktags run --password [masked] --debug"},
+		{"token flag with space first", "--token abc123", "--token [masked]"},
+		{"password flag upper case", "cmd --PASSWORD hunter2", "cmd --PASSWORD [masked]"},
+		{"token short flag quoted", `cmd -rke2-token "a b" x`, `cmd -rke2-token "[masked]" x`},
+		{"token flag single quoted unterminated", "cmd --token 'abc", "cmd --token '[masked]"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -65,6 +80,12 @@ func TestMaskKeepsTextWithoutSecrets(t *testing.T) {
 		"node acme-srv-1 (203.0.113.11:22) ready",
 		"ssh_port: 22",
 		"ünïcödé ✓ text",
+		`password: ""`,
+		"password: ''",
+		`{\"token\":\"\"}`,
+		"ktags secret rotate --token --debug",
+		"the rke2-token expired",
+		"--password",
 	}
 	for _, in := range tests {
 		if got := mask.Mask(in); got != in {
@@ -83,6 +104,7 @@ func TestMaskOverlappingPatterns(t *testing.T) {
 		{"pair as a token value", "token: password: hunter2", "token: [masked] [masked]"},
 		{"rke2 token as a password value", "password=K10" + fakeHash, "password=[masked]"},
 		{"secret inside pem", "-----BEGIN X-----\ntoken: abc\n-----END X----- tail", "[masked] tail"},
+		{"adjacent secrets", "-----BEGIN X-----\na\n-----END X-----tskey-abc", "[masked]"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -102,6 +124,10 @@ var secretBodies = map[string]string{
 	fakePEM:                             "ZmFrZS1wZW0tYm9keQ==",
 	"K10" + fakeHash + "::server:pw123": fakeHash,
 	"Bearer eyJfake.sig":                "eyJfake.sig",
+	`{\"password\":\"s3cr3tval\"}`:      "s3cr3tval",
+	"password: \"unclosedval":           "unclosedval",
+	"token: >-\n  blockvalue":           "blockvalue",
+	"--password flagvalue":              "flagvalue",
 }
 
 // FuzzMask runs its seed corpus in every `go test`; `go test -fuzz FuzzMask ./internal/mask`
