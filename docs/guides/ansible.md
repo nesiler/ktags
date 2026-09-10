@@ -68,7 +68,9 @@ per-host recap. The TUI run view and the CLI recap read this file; nobody parses
 ## 4. Inventory directory contract
 
 A customer is a plain Ansible inventory directory under the data dir. It must work with a bare
-`ansible-playbook -i <dir>` for emergency use.
+`ansible-playbook -i <dir>` for emergency use. Secrets then come from the age CLI through a
+process substitution, `-e @<(age -d -i <identity> <dir>/group_vars/all/secrets.age)` (ADR-0004);
+no plain-text file is written.
 
 ```
 <customers>/acme/
@@ -77,7 +79,7 @@ A customer is a plain Ansible inventory directory under the data dir. It must wo
     cluster.yml              human-edited: ktags_* block + cluster variables (plain text, no Jinja in the ktags block)
     versions.yml             version pins for this customer (upgrade = a deliberate change here)
     connection.yml           generated from the access mode (SSH args, jump ProxyCommand)
-    secrets.*                encrypted secrets (format per the secrets decision)
+    secrets.age              encrypted store (ADR-0004); Ansible's group_vars loader skips it
   known_hosts                pinned host keys of nodes and jump host
   LOCK.yml                   manual lock (owner, reason, since) when present
   README.md                  customer notes (ignored by the inventory plugin)
@@ -119,7 +121,7 @@ never deleted by a playbook; retention is a ktags job. Locks live in the state d
 | `result.json` in `/srv/ops/status/<c>/runs/` | `<state>/runs/<customer>/<run_id>/result.json` |
 | bastion user = audit `user` | operator name from the team file, verified against the age identity |
 | `team/members.yml` in the platform repo | team file in the config dir, exported with the customer |
-| sops vars plugin | per the secrets decision (open) |
+| sops vars plugin | age store decrypted by the service, handed over through an inherited pipe (ADR-0004) |
 | `access.yml` handles tailscale join | tailscale/jump is a **consented** secondary door, separate playbook |
 | Backup: peer only | peer auto + scheduled on node + optional encrypted local copy |
 
