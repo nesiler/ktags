@@ -103,6 +103,9 @@ issue, not from the review", spawn with `--round 2`.
 Select providers with `KTAGS_DEV_AGENT` and `KTAGS_REVIEW_AGENT`, or `spawn --agent`.
 Fresh Claude children default to `opus`; fresh Codex children default to `gpt-5.6-sol`.
 Override with `KTAGS_CLAUDE_CHILD_MODEL`, `KTAGS_CODEX_CHILD_MODEL`, or `spawn --model`.
+Claude children run with `--dangerously-skip-permissions` inside their own worktree, so the
+auto-mode classifier cannot stall a gate or a commit; the project PreToolUse hook still refuses
+secret paths, pushes to `main` and native approvals.
 Codex children run with approval prompts disabled. Their permission profile writes only the active
 worktree, shared Git metadata needed for commits, and that run's state directory; command network
 access is restricted to GitHub and the Go module services used by the gates. A denied operation
