@@ -29,11 +29,14 @@ const (
 	// in \r\n; the \r stays outside the masked value.
 	blockValue = `[|>][-+0-9]*[ \t]*(?:#[^\n]*)?\r?\n(?:[ \t]*\r?\n)*[ \t]+` +
 		`([^\r\n]*(?:\r?\n(?:\r?\n)*[ \t]+[^\r\n]*)*)`
-	// separator: YAML/JSON ':', INI or flag '=', and the '=>' hash arrow.
-	separator = `[ \t]*(?:=>?|:)[ \t]*`
+	// separator: YAML/JSON ':', INI or flag '=', the '=>' hash arrow, and a doubled '::'.
+	separator = `[ \t]*(?:=>?|::?)[ \t]*`
 	// yamlTag: an explicit YAML tag before the value. !!str and !!binary stay readable; any other
 	// word starting with ! (!vault, or a password such as "!abc def") is masked with the value.
 	yamlTag = `(?:!!(?:str|binary)[ \t]+|(!\S*)[ \t]*)?`
+	// yamlAnchor: a YAML anchor (&name) before or after the tag. It is masked with the value,
+	// because outside YAML (password=&abc x) the same text is part of the secret.
+	yamlAnchor = `(?:(&\S+)[ \t]+)?`
 )
 
 // patterns follow security.md §1. Unquoted values stop at white space or a quote: over-masking the
@@ -52,7 +55,7 @@ var patterns = []pattern{
 	// token/password key-value pairs in YAML, JSON (also escaped inside a JSON string), INI,
 	// --flag=value or key => value form; the key stays readable.
 	{
-		re: regexp.MustCompile(`(?i)` + sensitiveKey + `\\*["']?` + separator + yamlTag + `(?:` +
+		re: regexp.MustCompile(`(?i)` + sensitiveKey + `\\*["']?` + separator + yamlAnchor + yamlTag + yamlAnchor + `(?:` +
 			quotedValue + `|` + escapedValue + `|` + blockValue + `|([^\s"']+))`),
 		valueOnly: true,
 	},
