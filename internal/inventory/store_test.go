@@ -158,6 +158,9 @@ func TestLoadRefusesMalformedFiles(t *testing.T) {
 		{"float schema", strings.Replace(valid, "ktags_schema: 1", "ktags_schema: 1.0", 1), "parse"},
 		{"hex schema", strings.Replace(valid, "ktags_schema: 1", "ktags_schema: 0x1", 1), "parse"},
 		{"quoted port", strings.Replace(valid, "port: 22", `port: "22"`, 1), "parse"},
+		{"signed schema", strings.Replace(valid, "ktags_schema: 1", "ktags_schema: +1", 1), "parse"},
+		{"negative schema", strings.Replace(valid, "ktags_schema: 1", "ktags_schema: -1", 1), "parse"},
+		{"signed port", strings.Replace(valid, "port: 22", "port: +22", 1), "parse"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
