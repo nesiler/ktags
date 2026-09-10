@@ -223,20 +223,39 @@ exit 0
             result = subprocess.run(["bash", str(script), "doctor"], env=env, capture_output=True)
             self.assertEqual(result.returncode, 0)
 
+    def launch_args(self, provider, executable, model, env):
+        result = subprocess.run(
+            ["bash", "-c", 'source "$1"; launch=$(launch_command "$2" "$3" "$4" high test); eval "$launch"',
+             "test", str(ROOT / "scripts/session.sh"), provider, str(executable), model],
+            capture_output=True, text=True, check=True, env=env,
+        )
+        return json.loads(result.stdout)
+
+    def test_codex_profile_follows_ktags_root(self):
+        # Runner children inherit KTAGS_ROOT (the maintainer checkout); the test must not (#26).
+        with tempfile.TemporaryDirectory() as tmp:
+            executable = Path(tmp) / "fake engine"
+            executable.write_text('#!/usr/bin/env python3\nimport json,sys\nprint(json.dumps(sys.argv[1:]))\n')
+            executable.chmod(0o755)
+            unset = {key: value for key, value in os.environ.items() if key != "KTAGS_ROOT"}
+            other = Path(tmp) / "other checkout"
+            for env, root in ((unset, ROOT), ({**unset, "KTAGS_ROOT": str(other)}, other)):
+                with self.subTest(root=str(root)):
+                    args = self.launch_args("codex", executable, "m", env)
+                    permission = next(arg for arg in args if arg.startswith("permissions.ktags_coordinator="))
+                    self.assertIn(f'"{root / ".git"}"="write"', permission)
+                    self.assertIn(f'"{root / "docs"}"="read"', permission)
+
     def test_provider_launch_arguments_and_shell_quoting(self):
         with tempfile.TemporaryDirectory() as tmp:
             executable = Path(tmp) / "fake engine"
             executable.write_text('#!/usr/bin/env python3\nimport json,sys\nprint(json.dumps(sys.argv[1:]))\n')
             executable.chmod(0o755)
+            env = {**os.environ, "KTAGS_ROOT": str(ROOT)}
             for provider in ("claude", "codex"):
                 # A model string remains one argument; command substitution must not execute.
                 model = "test model $(false) `false`"
-                result = subprocess.run(
-                    ["bash", "-c", 'source "$1"; launch=$(launch_command "$2" "$3" "$4" high test); eval "$launch"',
-                     "test", str(ROOT / "scripts/session.sh"), provider, str(executable), model],
-                    capture_output=True, text=True, check=True,
-                )
-                args = json.loads(result.stdout)
+                args = self.launch_args(provider, executable, model, env)
                 self.assertEqual(args[args.index("--model") + 1], model)
                 if provider == "codex":
                     self.assertIn('model_reasoning_effort="high"', args)
