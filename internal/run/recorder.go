@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"sync"
 
@@ -24,7 +23,7 @@ type Recorder struct {
 	meta  Meta
 
 	mu     sync.Mutex
-	events *os.File
+	events eventFile
 	// closed is set once events.jsonl is synced and closed by Finish.
 	closed bool
 	// broken is the write error that stopped appends; a partial line may follow the last event.

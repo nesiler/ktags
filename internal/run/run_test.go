@@ -334,25 +334,25 @@ func TestTornEventLineIsIgnored(t *testing.T) {
 }
 
 func TestDamagedEventLineMakesRunIncomplete(t *testing.T) {
-	cases := map[string]string{
-		"garbage":       "not json\n",
-		"gap":           `{"v":1,"id":4,"time":"2026-09-10T12:00:00Z","message":"x"}` + "\n",
-		"duplicate":     `{"v":1,"id":2,"time":"2026-09-10T12:00:00Z","message":"x"}` + "\n",
-		"wrong version": `{"v":9,"id":3,"time":"2026-09-10T12:00:00Z","message":"x"}` + "\n",
+	cases := map[string]struct{ line, want string }{
+		"garbage":       {"not json\n", "not a complete JSON document"},
+		"gap":           {`{"v":1,"id":4,"time":"2026-09-10T12:00:00Z","message":"x"}` + "\n", "event ID 4, want 3"},
+		"duplicate":     {`{"v":1,"id":2,"time":"2026-09-10T12:00:00Z","message":"x"}` + "\n", "event ID 2, want 3"},
+		"wrong version": {`{"v":9,"id":3,"time":"2026-09-10T12:00:00Z","message":"x"}` + "\n", "format version 9"},
 	}
-	for name, line := range cases {
+	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
 			s := newStore(t, t.TempDir(), Options{})
 			rec := start(t, s, acme)
 			appendN(t, rec, 2)
-			appendRaw(t, filepath.Join(rec.dir, eventsFile), line)
+			appendRaw(t, filepath.Join(rec.dir, eventsFile), c.line)
 
 			got, err := s.Load(context.Background(), rec.Meta().ID)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if got.Status != StatusIncomplete || got.LastEventID != 2 || !strings.Contains(got.Problem, "line 3") {
-				t.Fatalf("status %q last event %d problem %q; want incomplete at line 3", got.Status, got.LastEventID, got.Problem)
+			if got.Status != StatusIncomplete || got.LastEventID != 2 || !strings.Contains(got.Problem, "line 3: "+c.want) {
+				t.Fatalf("status %q last event %d problem %q; want incomplete at line 3: %s", got.Status, got.LastEventID, got.Problem, c.want)
 			}
 			events, err := s.Events(context.Background(), rec.Meta().ID, 0)
 			if err == nil || !equalIDs(eventIDs(events), []uint64{1, 2}) {
@@ -373,7 +373,7 @@ func TestMissingMetaMakesRunIncomplete(t *testing.T) {
 	if err != nil || len(runs) != 1 {
 		t.Fatalf("List = %v, %v", runs, err)
 	}
-	if runs[0].Status != StatusIncomplete || runs[0].Meta.ID != rec.Meta().ID || !strings.Contains(runs[0].Problem, metaFile) {
+	if runs[0].Status != StatusIncomplete || runs[0].Meta.ID != rec.Meta().ID || !strings.Contains(runs[0].Problem, metaFile+" is missing") {
 		t.Fatalf("got %+v; want incomplete naming %s", runs[0], metaFile)
 	}
 }
@@ -672,8 +672,8 @@ func TestFinishIsFinal(t *testing.T) {
 	if _, err := rec.Finish(StatusSucceeded, "again"); err == nil {
 		t.Error("a second Finish was accepted")
 	}
-	if _, err := rec.Append(actions.Event{Message: "late"}); err == nil {
-		t.Error("Append after Finish was accepted")
+	if _, err := rec.Append(actions.Event{Message: "late"}); err == nil || !strings.Contains(err.Error(), "has finished") {
+		t.Errorf("Append after Finish = %v, want the finished-run refusal", err)
 	}
 	after, err := os.ReadFile(filepath.Join(rec.dir, resultFile))
 	if err != nil || !bytes.Equal(before, after) {

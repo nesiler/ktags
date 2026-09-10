@@ -28,6 +28,13 @@ type tempFile interface {
 	Close() error
 }
 
+// eventFile is the part of *os.File a Recorder appends events through, so tests can fail each call.
+type eventFile interface {
+	io.Writer
+	Sync() error
+	Close() error
+}
+
 // fileSystem holds the calls writeAtomic makes, so tests can fail each step.
 type fileSystem struct {
 	createTemp func(dir, pattern string) (tempFile, error)
