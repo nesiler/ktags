@@ -20,6 +20,16 @@ func TestCorePackagesDoNotDependOnAdapters(t *testing.T) {
 		module + "/internal/transport",
 		"charm.land/bubbletea",
 		"github.com/spf13/cobra",
+		// Infrastructure implementations: actions reach them only through interfaces.
+		module + "/internal/ansible",
+		module + "/internal/ssh",
+		module + "/internal/kube",
+		module + "/internal/rancher",
+		"golang.org/x/crypto/ssh",
+		"k8s.io",
+		"sigs.k8s.io",
+		"github.com/rancher",
+		"os/exec",
 	}
 
 	for _, packagePath := range protected {

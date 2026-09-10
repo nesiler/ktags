@@ -1,4 +1,3 @@
-// Package actions defines application operations independently of user interfaces.
 package actions
 
 import "github.com/nesiler/ktags/internal/core/domain"
