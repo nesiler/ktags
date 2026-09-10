@@ -378,6 +378,48 @@ func TestMissingMetaMakesRunIncomplete(t *testing.T) {
 	}
 }
 
+func TestMismatchedMetaIDMakesRunIncomplete(t *testing.T) {
+	s := newStore(t, t.TempDir(), Options{})
+	other := start(t, s, acme)
+	rec := start(t, s, acme)
+	finish(t, rec, StatusSucceeded)
+	// A copied run directory: a valid meta.json that names another run.
+	data, err := os.ReadFile(filepath.Join(other.dir, metaFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(rec.dir, metaFile), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Load(context.Background(), rec.Meta().ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != StatusIncomplete || got.Meta.ID != rec.Meta().ID || !strings.Contains(got.Problem, "does not match the directory") {
+		t.Fatalf("status %q id %q problem %q; want incomplete under %q naming the mismatch", got.Status, got.Meta.ID, got.Problem, rec.Meta().ID)
+	}
+}
+
+func TestStartRefusesAnExistingRunID(t *testing.T) {
+	root := t.TempDir()
+	first := start(t, newStore(t, root, Options{}), acme)
+	appendN(t, first, 2)
+	finish(t, first, StatusSucceeded)
+
+	// A second store with the same clock and random source produces the same run ID.
+	again := newStore(t, root, Options{})
+	if _, err := again.Start(context.Background(), "cluster upgrade", acme); err == nil {
+		t.Fatal("Start reused the directory of an existing run")
+	}
+	got, err := again.Load(context.Background(), first.Meta().ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != StatusSucceeded || got.Meta.Action != "cluster health" || got.LastEventID != 2 || got.Problem != "" {
+		t.Fatalf("existing run after a colliding Start: status %q action %q last event %d problem %q", got.Status, got.Meta.Action, got.LastEventID, got.Problem)
+	}
+}
+
 func appendRaw(t *testing.T, path, text string) {
 	t.Helper()
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0)
@@ -526,6 +568,42 @@ func TestNextHonoursContextAndClose(t *testing.T) {
 	sub.Close()
 	if err := <-blocked; !errors.Is(err, ErrClosed) {
 		t.Fatalf("blocked Next after Close = %v, want ErrClosed", err)
+	}
+}
+
+// waitingCtx reports the first call to Done. Next calls Done only in its blocking select, after
+// it has seen no new event and an unfinished run, so the signal means Next is about to wait.
+type waitingCtx struct {
+	context.Context
+	once    sync.Once
+	waiting chan struct{}
+}
+
+func (c *waitingCtx) Done() <-chan struct{} {
+	c.once.Do(func() { close(c.waiting) })
+	return c.Context.Done()
+}
+
+// #10-K3
+func TestFinishWakesBlockedSubscriber(t *testing.T) {
+	s := newStore(t, t.TempDir(), Options{})
+	rec := start(t, s, acme)
+	sub, err := rec.Subscribe(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	ctx := &waitingCtx{Context: parent, waiting: make(chan struct{})}
+	blocked := make(chan error, 1)
+	go func() {
+		_, err := sub.Next(ctx)
+		blocked <- err
+	}()
+	<-ctx.waiting
+	finish(t, rec, StatusSucceeded)
+	if err := <-blocked; !errors.Is(err, io.EOF) {
+		t.Fatalf("Next blocked across Finish = %v, want io.EOF", err)
 	}
 }
 
