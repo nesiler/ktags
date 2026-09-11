@@ -62,7 +62,7 @@ run badge, mouse state. Bottom: hint bar (one line) and the command bar line.
 | empty | one line saying there are no customers yet; the hint bar offers `customer add` |
 | loading a tab | a spinner in the panel title naming what loads; previous content stays, marked stale if old |
 | stale | grey value with its age ("stale · 5h"); a check older than its interval is stale |
-| missed | a check the service could not run (laptop asleep, service stopped) is shown as missed, never as ok |
+| missed | a stale check whose scheduled run did not happen (laptop asleep, service stopped). As ADR-0001 requires, it is reported as stale: last result greyed with its age, plus the word "missed". Never shown as ok or as completed |
 
 Reconnect keeps the last event cursor of every open run and resumes the stream from it
 (ADR-0002): no duplicate and no missing lines. If the cursor is no longer valid, the run view
@@ -185,7 +185,7 @@ shows a stack trace or secret material; details are one action away ("show log")
   reach into each other.
 - Space key arrives as `"space"` in Bubble Tea v2 — handle it by name (spike 04 lesson).
 
-## 13. Tests (see `testing.md §4`)
+## 13. Tests (see `testing.md §1` TUI layer and `§5`; golden pitfalls in `§4`)
 
 - Every screen and every state of §3 has a `teatest/v2` golden at 100×30 with colours disabled;
   goldens are updated only with `-update` and reviewed as diffs.

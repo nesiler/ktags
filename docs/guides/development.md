@@ -13,7 +13,7 @@ internal/
   tui/                Bubble Tea app: model, screens, palette, registry surfaces
   ansible/            subprocess runner, events reader, result.json reader
   inventory/          customer directory contract: schema, strict read, hosts.yml write
-  secrets/            encryption boundary (whatever the secrets decision becomes lives here only)
+  secrets/            encryption boundary: the only package that reads or writes the age store (ADR-0004)
   audit/  lock/  run/ append-only audit, per-customer lock, run directories
   paths/              every filesystem location; the only package that knows about $HOME
   actions/            the action registry (verbs, targets, guards, danger levels) shared by CLI and TUI
@@ -40,7 +40,7 @@ artefacts are laptop state per ADR-0002; an explicit encrypted export decides wh
 
 | What | Default | Override |
 |---|---|---|
-| Config (tool settings, team members file) | `$XDG_CONFIG_HOME/ktags` → `~/.config/ktags` | `KTAGS_CONFIG_DIR` |
+| Config (tool settings, operator roster) | `$XDG_CONFIG_HOME/ktags` → `~/.config/ktags` | `KTAGS_CONFIG_DIR` |
 | Customers (inventory and secret references), Ansible content, collections | `$XDG_DATA_HOME/ktags` → `~/.local/share/ktags` | `KTAGS_DATA_DIR` |
 | Run records, audit log, locks, ktags logs, temporary files (k9s kubeconfig) | `$XDG_STATE_HOME/ktags` → `~/.local/state/ktags` | `KTAGS_STATE_DIR` |
 | Runtime: local service socket and other ephemeral files (ADR-0001) | `$XDG_RUNTIME_DIR/ktags` when set and absolute → `<state>/run` | `KTAGS_RUNTIME_DIR` |
@@ -82,8 +82,9 @@ cannot reach acme-srv-1 (203.0.113.11:22): connection timed out after 10s
 ```
 
 - Wrap with context (`fmt.Errorf("install acme: %w", err)`); never swallow.
-- A `Hint` (next command) is part of the error type used at the boundary; the TUI shows it in the
-  error dialog, the CLI prints it under the message.
+- A `Hint` (next command) is part of the error type used at the boundary. The TUI shows it where
+  `ui.md §8` places the error: inline, in a dialog, in the run result or as a connection state.
+  The CLI prints it under the message.
 - No stack traces to the terminal. Panics are bugs; recover only in the TUI top level to restore
   the terminal, then re-panic with the log path.
 - Never put secret values, full kubeconfigs, tokens or bootstrap passwords in an error, even

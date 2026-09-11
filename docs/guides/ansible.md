@@ -42,8 +42,9 @@ Playbooks are one per job: `access`, `preflight`, `install`, `health`, `backup`,
 | `ktags_target_hosts` | jobs that act on a subset (access, node add/remove) |
 | `ktags_team_ssh_keys` | public keys to install (not secret) |
 
-Secrets reach Ansible only through the mechanism the secrets decision selects (`security.md §2`),
-never through `-e`, environment or a plain file that outlives the run.
+Secrets reach Ansible only as an extra-vars file read from a pipe the child inherits
+(`-e @/dev/fd/N`, ADR-0004, `security.md §2`). Never as `-e key=value`, an environment variable or
+a temporary file.
 
 **Out** — `result.json` (`{ktags_run_dir}/result.json`, written with `delegate_to: localhost`,
 `run_once`):
@@ -120,8 +121,8 @@ never deleted by a playbook; retention is a ktags job. Locks live in the state d
 | `/srv/ops/{platform,inventories,logs,status}` | XDG dirs (`development.md §2`); inventories under data, runs under state |
 | `ops_*` variable prefix | `ktags_*` |
 | `result.json` in `/srv/ops/status/<c>/runs/` | `<state>/runs/<customer>/<run_id>/result.json` |
-| bastion user = audit `user` | operator name from the team file, verified against the age identity |
-| `team/members.yml` in the platform repo | team file in the config dir, exported with the customer |
+| bastion user = audit `user` | operator name from the operator roster (`security.md §2`), verified against the age identity |
+| `team/members.yml` in the platform repo | operator roster in the config dir, exported with the customer |
 | sops vars plugin | age store decrypted by the service, handed over through an inherited pipe (ADR-0004) |
 | `access.yml` handles tailscale join | tailscale/jump is a **consented** secondary door, separate playbook |
 | Backup: peer only | peer auto + scheduled on node + optional encrypted local copy |
