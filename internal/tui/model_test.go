@@ -284,6 +284,8 @@ func TestDangerLevels(t *testing.T) {
 	extra := []service.ActionInfo{
 		{ID: "fake odd", Title: "Fake odd", Help: "An effect this build does not know.", Target: "customer", Effect: "explosive"},
 		{ID: "fake global", Title: "Fake global", Help: "Changes the laptop.", Target: "global", Effect: "mutating"},
+		{ID: "fake loud", Title: "Fake loud", Help: "An effect in another case.", Target: "customer", Effect: "Mutating"},
+		{ID: "fake pad", Title: "Fake pad", Help: "An effect with a space.", Target: "customer", Effect: "mutating "},
 	}
 	cases := []struct {
 		input string
@@ -298,6 +300,8 @@ func TestDangerLevels(t *testing.T) {
 		{"fake wipe delta", dialogTypeName, "delta", false},
 		{"fake odd india", dialogTypeName, "india", false},
 		{"fake global", dialogConfirm, "", false},
+		{"fake loud delta ", dialogTypeName, "delta", false},
+		{"fake pad delta ", dialogTypeName, "delta", false},
 	}
 	for _, c := range cases {
 		f := newFake()
@@ -321,8 +325,24 @@ func TestDangerLevels(t *testing.T) {
 }
 
 // A type-name confirmation starts only on the exact name: y is just a letter, a wrong or
-// partial name is refused inline, Esc cancels.
+// partial name is refused inline, Esc cancels. Names of the same length, another case or with
+// spaces around are wrong too, so a length, case-folding or trimming match cannot pass.
 func TestTypeNameConfirmation(t *testing.T) {
+	for _, wrong := range []string{"mika", "MIKE", "Mike", "mike ", " mike"} {
+		f := newFake()
+		d := connected(t, f)
+		d.key(":")
+		d.typeText("fake touch mike")
+		d.key("enter")
+		d.typeText(wrong)
+		d.key("enter")
+		d.drain()
+		if d.m.dialog.typed != wrong || !d.m.dialog.wrong || d.m.overlay != overlayDialog || len(f.snapshot().started) != 0 {
+			t.Fatalf("%q against mike: typed %q wrong %v overlay %d started %v; want a mismatch and nothing started",
+				wrong, d.m.dialog.typed, d.m.dialog.wrong, d.m.overlay, f.snapshot().started)
+		}
+	}
+
 	f := newFake()
 	d := connected(t, f)
 	d.key(":")
@@ -390,6 +410,9 @@ func TestPipelineRefusals(t *testing.T) {
 			wants: []string{"actions are disabled while the service connection is reconnecting", "nothing was started", "next: wait until the top bar shows connected"}},
 		{name: "refused record", input: "fake check zulu", wants: []string{`the record of customer "zulu" is refused: cannot parse`, "next: fix the customer record"}},
 		{name: "unknown customer", input: "fake check nobody", wants: []string{`no customer "nobody" in the inventory`, "next: ktags customer list"}},
+		{name: "customer in another case", input: "fake check DELTA ", wants: []string{`no customer "DELTA" in the inventory`}},
+		{name: "customer prefix", input: "fake check delt ", wants: []string{`no customer "delt" in the inventory`}},
+		{name: "customer of the same length", input: "fake check delte ", wants: []string{`no customer "delte" in the inventory`}},
 		{name: "node without node", input: "node drain delta --reason upgrade", wants: []string{`action "node drain" needs a node`, "next: type it in the palette: :node drain <customer> <node> --reason <string>"}},
 		{name: "missing argument", input: "node drain delta srv-1", wants: []string{`action "node drain" needs --reason`}},
 		{name: "unknown target kind", input: "fake cluster delta",
@@ -867,9 +890,6 @@ func TestEscDetachesAndReopenResumes(t *testing.T) {
 	}
 }
 
-// Ctrl-C in the run view asks "Cancel run?" through the confirmation levels: a prod run and a
-// run of a customer that left the inventory need the typed name; staging and global ask
-// [y/N]. A finished run has nothing to cancel.
 // A refresh stops at the first failing call: a later call that succeeds must not hide the
 // error, so a protocol mismatch from any call drops the data.
 func TestRefreshStopsAtTheFirstError(t *testing.T) {
@@ -933,6 +953,9 @@ func TestCtrlCQuitsFromOverlays(t *testing.T) {
 	}
 }
 
+// Ctrl-C in the run view asks "Cancel run?" through the confirmation levels: a prod run and a
+// run of a customer that left the inventory need the typed name (DELTA is not delta); staging
+// and global ask [y/N]. A finished run has nothing to cancel.
 func TestCtrlCCancelsWithConfirmation(t *testing.T) {
 	cases := []struct {
 		customer string
@@ -943,6 +966,7 @@ func TestCtrlCCancelsWithConfirmation(t *testing.T) {
 		{"delta", dialogConfirm, []string{"y"}},
 		{"", dialogConfirm, []string{"y"}},
 		{"ghost", dialogTypeName, []string{"g", "h", "o", "s", "t", "enter"}},
+		{"DELTA", dialogTypeName, []string{"D", "E", "L", "T", "A", "enter"}},
 	}
 	for _, c := range cases {
 		f := newFake()

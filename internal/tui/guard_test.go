@@ -264,14 +264,18 @@ func TestMenuWithoutActions(t *testing.T) {
 	}
 }
 
-// An environment other than staging or test counts as prod; a global destructive action is
-// confirmed by typing its ID.
+// An environment other than exactly staging or test counts as prod, including another case, a
+// space around it or a longer word; a global destructive action is confirmed by typing its ID.
 func TestDangerEdges(t *testing.T) {
 	f := newFake()
-	qa := entry("quebec", "qa", "ok")
-	f.fleet.Customers = append(f.fleet.Customers, qa)
+	f.fleet.Customers = append(f.fleet.Customers,
+		entry("quebec", "qa", "ok"), entry("romeo", "Staging", "ok"), entry("sierra", "staging ", "ok"),
+		entry("tango", "TEST", "ok"), entry("uniform", "testing", "ok"))
 	f.actions = append(f.actions, service.ActionInfo{ID: "fake nuke", Title: "Fake nuke", Help: "Wipes the laptop.", Target: "global", Effect: "destructive"})
-	for input, name := range map[string]string{"fake touch quebec": "quebec", "fake nuke": "fake nuke"} {
+	for input, name := range map[string]string{
+		"fake touch quebec ": "quebec", "fake touch romeo ": "romeo", "fake touch sierra ": "sierra",
+		"fake touch tango ": "tango", "fake touch uniform ": "uniform", "fake nuke": "fake nuke",
+	} {
 		d := connected(t, f)
 		d.key(":")
 		d.typeText(input)
@@ -326,6 +330,23 @@ func TestTypeNameSpace(t *testing.T) {
 	d.drain()
 	if d.m.dialog.typed != "mi ke" || !d.m.dialog.wrong || len(f.snapshot().started) != 0 {
 		t.Fatalf("typed %q wrong %v started %v", d.m.dialog.typed, d.m.dialog.wrong, f.snapshot().started)
+	}
+}
+
+// Action IDs and argument names match exactly: another case or a prefix is not the action or
+// the argument.
+func TestPaletteNamesMatchExactly(t *testing.T) {
+	d := connected(t, newFake())
+	for _, input := range []string{"FAKE CHECK delta ", "Fake check delta ", "fake chec delta "} {
+		if q := d.m.parse(input); q.action != nil {
+			t.Fatalf("%q resolved to action %q, want no action", input, q.action.ID)
+		}
+	}
+	for arg, want := range map[string]string{"--Reason": `has no argument "--Reason"`, "--reas": `has no argument "--reas"`} {
+		q := d.m.parse("node drain delta srv-1 " + arg + " upgrade ")
+		if q.action == nil || !strings.Contains(q.err, want) {
+			t.Fatalf("%s: action %v err %q, want %q", arg, q.action, q.err, want)
+		}
 	}
 }
 
