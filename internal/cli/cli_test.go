@@ -239,6 +239,30 @@ func (c *fakeClient) run(id string) (*fakeRun, error) {
 
 var running = service.Status{Running: true, Socket: "/tmp/kt/runtime/service.sock", Protocol: 1, PID: 4242, Version: "test", ActiveRuns: 2}
 
+var staleRunning = func() service.Status { st := running; st.StaleAgent = true; return st }()
+
+// #68-K1 D3: a current agent prints no stale line, and --json carries stale_agent only when set.
+func TestServiceStaleAgentOutput(t *testing.T) {
+	for _, tc := range []struct {
+		st        service.Status
+		human     bool
+		jsonField bool
+	}{{running, false, false}, {staleRunning, true, true}} {
+		control := fakeControl{status: tc.st}
+		_, stdout, _ := runCLI(fakeRuntime{control: &control}, "service", "status")
+		if got := strings.Contains(stdout, "stale agent definition"); got != tc.human {
+			t.Fatalf("stale %v: human output names a stale agent: %v\n%s", tc.st.StaleAgent, got, stdout)
+		}
+		_, stdout, _ = runCLI(fakeRuntime{control: &control}, "service", "status", "--json")
+		if got := strings.Contains(stdout, `"stale_agent": true`); got != tc.jsonField {
+			t.Fatalf("stale %v: json %s", tc.st.StaleAgent, stdout)
+		}
+		if !tc.jsonField && strings.Contains(stdout, "stale_agent") {
+			t.Fatalf("json names stale_agent for a current agent: %s", stdout)
+		}
+	}
+}
+
 func runCLI(rt Runtime, args ...string) (int, string, string) {
 	var stdout, stderr bytes.Buffer
 	code := Run(context.Background(), rt, args, Streams{Out: &stdout, Err: &stderr})
@@ -265,6 +289,11 @@ func TestServiceCommands(t *testing.T) {
 			nil, []string{"ktags: launchctl bootstrap failed", "next: inspect the job"}, false},
 		{"status running", []string{"service", "status"}, fakeControl{status: running}, 0,
 			[]string{"ktags service is running (pid 4242)", "version   test"}, nil, false},
+		// #68-K1 D3: a stale agent definition is named with its fix; start re-prints it.
+		{"status stale agent", []string{"service", "status"}, fakeControl{status: staleRunning}, 0,
+			[]string{"ktags service is running (pid 4242)", "agent     stale agent definition", "next: ktags service stop && ktags service start"}, nil, false},
+		{"start finds a stale agent", []string{"service", "start"}, fakeControl{status: staleRunning}, 0,
+			[]string{"ktags service is already running (pid 4242)", "stale agent definition", "next: ktags service stop && ktags service start"}, nil, false},
 		{"status fails", []string{"service", "status"}, fakeControl{err: broken}, 1,
 			nil, []string{"ktags: launchctl bootstrap failed"}, false},
 		{"status not running", []string{"service", "status"}, fakeControl{status: service.Status{Socket: "/s.sock"}}, 1,

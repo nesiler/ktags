@@ -47,6 +47,48 @@ next: run each fix, then ktags doctor again
 	}
 }
 
+// #68-K1 D6: an identical fix is printed once and names the rows it fixes; later rows point
+// back to it; a different fix is printed as it is; --json keeps one fix per row.
+func TestDoctorDeduplicatesFixes(t *testing.T) {
+	report := doctor.Report{Status: doctor.StatusFail, Checks: []doctor.Result{
+		{ID: "service.socket", Title: "socket", Status: doctor.StatusFail, Evidence: "no service", Fix: "ktags service start"},
+		{ID: "roots.config", Title: "config", Status: doctor.StatusFail, Evidence: "mode 0755", Fix: "chmod 700 '/k/config'"},
+		{ID: "service.protocol", Title: "protocol", Status: doctor.StatusWarn, Evidence: "not measured", Fix: "ktags service start"},
+		{ID: "inventory.list", Title: "inventory", Status: doctor.StatusWarn, Evidence: "not measured", Fix: "ktags service start"},
+	}}
+	control, _ := newFake()
+	code, stdout, _ := runCLI(fakeRuntime{control: control, report: report}, "doctor")
+	want := `doctor: 2 failing, 2 warning of 4 checks
+  fail  service.socket  socket
+        no service
+        fix: ktags service start
+        (fixes service.socket, service.protocol, inventory.list)
+  fail  roots.config  config
+        mode 0755
+        fix: chmod 700 '/k/config'
+  warn  service.protocol  protocol
+        not measured
+        fix: as for service.socket
+  warn  inventory.list  inventory
+        not measured
+        fix: as for service.socket
+next: run each fix, then ktags doctor again
+`
+	if code != 4 || stdout != want {
+		t.Fatalf("exit %d, stdout:\n%s\nwant:\n%s", code, stdout, want)
+	}
+	_, stdout, _ = runCLI(fakeRuntime{control: control, report: report}, "doctor", "--json")
+	var doc struct {
+		Data doctor.Report `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &doc); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(doc.Data, report) {
+		t.Fatalf("json report %+v, want every row with its own fix %+v", doc.Data, report)
+	}
+}
+
 // #61-K2: exit codes: 0 green, 0 with warnings only, 4 with a failing check, 1 when the report
 // cannot be made or the command is misused.
 func TestDoctorExitCodes(t *testing.T) {

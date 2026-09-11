@@ -175,16 +175,71 @@ func TestLaunchdBootstrapsWhenNotLoaded(t *testing.T) {
 	}
 }
 
-// A job launchd still has loaded is kickstarted, never bootstrapped twice or killed.
-func TestLaunchdKickstartsWhenLoaded(t *testing.T) {
+// #68-K1 D3: a job launchd still has loaded is left alone: no bootstrap, no kickstart, and its
+// definition file is not rewritten, so a stale one stays visible.
+func TestLaunchdLeavesLoadedJobAlone(t *testing.T) {
 	fake := &fakeLaunchctl{loaded: true}
 	l, _ := testLaunchd(t, fake)
+	if err := os.MkdirAll(filepath.Dir(l.Definition), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(l.Definition, []byte("old definition"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	if err := l.Launch(context.Background()); err != nil {
 		t.Fatalf("Launch: %v", err)
 	}
 	target := "gui/" + strconv.Itoa(os.Getuid()) + "/" + l.Label
-	if want := [][]string{{"print", target}, {"kickstart", target}}; !reflect.DeepEqual(fake.calls, want) {
+	if want := [][]string{{"print", target}}; !reflect.DeepEqual(fake.calls, want) {
 		t.Fatalf("launchctl calls %q, want %q", fake.calls, want)
+	}
+	if data, err := os.ReadFile(l.Definition); err != nil || string(data) != "old definition" {
+		t.Fatalf("definition %q, %v; want it untouched", data, err)
+	}
+}
+
+// #68-K1 D3: Stale compares the definition file with the one this build writes.
+func TestLaunchdStale(t *testing.T) {
+	l, _ := testLaunchd(t, &fakeLaunchctl{})
+	if stale, err := l.Stale(); stale || err != nil {
+		t.Fatalf("no definition: stale %v, %v; want not stale", stale, err)
+	}
+	if err := l.Launch(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if stale, err := l.Stale(); stale || err != nil {
+		t.Fatalf("fresh definition: stale %v, %v; want not stale", stale, err)
+	}
+	other := l
+	other.Program = "/opt/ktags/older/ktags"
+	if stale, err := other.Stale(); !stale || err != nil {
+		t.Fatalf("definition of another build: stale %v, %v; want stale", stale, err)
+	}
+	chmod(t, l.Definition, 0o000)
+	if _, err := l.Stale(); err == nil {
+		t.Fatal("unreadable definition: no error")
+	}
+	chmod(t, l.Definition, 0o600)
+	bad := l
+	bad.Env = []string{"KTAGS_HOME"}
+	if _, err := bad.Stale(); err == nil {
+		t.Fatal("a definition this build cannot write: no error")
+	}
+}
+
+// #68-K2: the chmod hint is POSIX-quoted, so a path with $, a backtick or a quote pastes as is.
+func TestLaunchdChmodHintIsShellQuoted(t *testing.T) {
+	fake := &fakeLaunchctl{}
+	l, _ := testLaunchd(t, fake)
+	dir := filepath.Join(t.TempDir(), "it's $HOME `x`")
+	l.Definition = filepath.Join(dir, "job.plist")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	chmod(t, dir, 0o755)
+	pe := wantUnavailable(t, l.Launch(context.Background()))
+	if want := "chmod 700 '" + strings.ReplaceAll(dir, "'", `'\''`) + "'"; pe.Hint != want {
+		t.Fatalf("hint %q, want %q", pe.Hint, want)
 	}
 }
 
@@ -278,7 +333,7 @@ func TestLaunchdQuietFailure(t *testing.T) {
 	}
 }
 
-// A definition that cannot be replaced stops the launch before launchctl runs.
+// A definition that cannot be replaced stops the launch before bootstrap.
 func TestLaunchdDefinitionNotReplaceable(t *testing.T) {
 	fake := &fakeLaunchctl{}
 	l, _ := testLaunchd(t, fake)
@@ -286,7 +341,8 @@ func TestLaunchdDefinitionNotReplaceable(t *testing.T) {
 		t.Fatal(err)
 	}
 	pe := wantUnavailable(t, l.Launch(context.Background()))
-	if !strings.Contains(pe.Message, "cannot replace the launchd definition") || len(fake.calls) != 0 {
+	target := "gui/" + strconv.Itoa(os.Getuid()) + "/" + l.Label
+	if !strings.Contains(pe.Message, "cannot replace the launchd definition") || !reflect.DeepEqual(fake.calls, [][]string{{"print", target}}) {
 		t.Fatalf("Launch: %q, calls %q", pe.Message, fake.calls)
 	}
 }

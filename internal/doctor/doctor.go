@@ -11,6 +11,7 @@ import (
 	"github.com/nesiler/ktags/internal/mask"
 	"github.com/nesiler/ktags/internal/paths"
 	"github.com/nesiler/ktags/internal/service"
+	"github.com/nesiler/ktags/internal/shell"
 )
 
 // Status is the outcome of one check. Only fail makes doctor red.
@@ -54,6 +55,9 @@ type Env struct {
 	// AgentDefinition is the launchd job definition of the service; empty when the platform
 	// starts the service without launchd.
 	AgentDefinition string
+	// AgentStale reports whether that definition differs from the one this build writes; nil
+	// when there is no launchd agent.
+	AgentStale func() (bool, error)
 	// Foreground is set when this platform cannot start the service in the background, so the
 	// fix is `ktags service run`.
 	Foreground bool
@@ -168,9 +172,7 @@ func worse(a, b Status) Status {
 }
 
 // quote makes s one word for a POSIX shell, so a fix can be pasted as it is printed.
-func quote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
-}
+func quote(s string) string { return shell.Quote(s) }
 
 // firstLine drops the "next:" lines ktags errors append; a check names its own fix.
 func firstLine(s string) string {

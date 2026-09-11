@@ -291,6 +291,46 @@ func TestCheckTimeout(t *testing.T) {
 	}
 }
 
+// lateSSH answers ok, but only after its context has ended.
+type lateSSH struct{ FakeSSH }
+
+func (lateSSH) Reach(ctx context.Context, _ SSHTarget) error {
+	<-ctx.Done()
+	return nil
+}
+
+// #68-K1 D4: an ok that arrives after the deadline is a timeout, never ok, and blocks the
+// later checks like any failure.
+func TestLateSuccessIsTimeout(t *testing.T) {
+	r, err := New(Options{SSH: lateSSH{}, Kubernetes: FakeAPI{}, Rancher: FakeAPI{}, Redact: mask.Mask, Now: time.Now, Timeout: 10 * time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	results, err := r.SSH(context.Background(), sshTarget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := results[0]; got.Status != StatusFailed || got.Kind != KindTimeout || !strings.Contains(got.Detail, "10ms") || !strings.Contains(got.Detail, "after the deadline") {
+		t.Fatalf("endpoint = %s %s %q, want a timeout after 10ms", got.Status, got.Kind, got.Detail)
+	}
+	if results[1].Status != StatusSkipped {
+		t.Fatalf("ssh.auth = %s, want skipped after the timeout", results[1].Status)
+	}
+}
+
+// An ok after a cancellation (not a deadline) stays as the adapter said: D4 names the deadline.
+func TestOKAfterCancelKept(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	results, err := newRunner(t, lateSSH{}, FakeAPI{}, FakeAPI{}).SSH(ctx, sshTarget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if results[0].Status != StatusOK {
+		t.Fatalf("endpoint = %s %s, want ok", results[0].Status, results[0].Kind)
+	}
+}
+
 func TestCancelledCheck(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

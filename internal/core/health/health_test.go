@@ -467,6 +467,7 @@ func TestHungCustomerReleasesItsSlot(t *testing.T) {
 }
 
 // #15-K2: a hung customer does not hold up the scheduler; the other customer keeps its slots.
+// #68-K1 D2: the hung check is not started again at the next slot; that slot reports a timeout.
 func TestHungCustomerDoesNotBlockScheduler(t *testing.T) {
 	c := &calls{}
 	block := make(chan struct{})
@@ -486,7 +487,7 @@ func TestHungCustomerDoesNotBlockScheduler(t *testing.T) {
 		if i < 15 {
 			clock.idle(t, 2)
 		} else {
-			clock.idle(t, 3) // acme's next hung check; globex's check and next wait
+			clock.idle(t, 3) // acme's next wait; globex's check and next wait
 		}
 	}
 	if got := c.times("globex"); len(got) != 2 || !got[1].Equal(t0.Add(15*time.Minute)) {
@@ -495,9 +496,229 @@ func TestHungCustomerDoesNotBlockScheduler(t *testing.T) {
 	if v := view(t, e, "globex"); v.Stale || v.Health != HealthOK {
 		t.Fatalf("globex view %+v, want fresh and ok", v)
 	}
+	if got := c.times("acme"); len(got) != 1 {
+		t.Fatalf("acme's check started at %v, want only at 09:00 while it hangs", got)
+	}
 	v := view(t, e, "acme")
-	if v.Health != HealthFail || !v.MeasuredAt.Equal(t0) || v.Checks[0].Status != StatusTimeout || !v.Running {
-		t.Fatalf("acme view %+v, want the timed-out 09:00 run and a new run in progress", v)
+	if v.Health != HealthFail || !v.MeasuredAt.Equal(t0.Add(15*time.Minute)) || v.Running ||
+		v.Checks[0].Status != StatusTimeout || v.Checks[0].Detail != "not started: the previous run is still running" {
+		t.Fatalf("acme view %+v, want the 09:15 slot reported as a timeout of the still-running check", v)
+	}
+}
+
+// #68-K1 D2: at most one goroutine per hung check and customer. Once it returns, the check
+// runs again; another customer's run of the same check is not affected.
+func TestHungCheckNotRestarted(t *testing.T) {
+	block := make(chan struct{})
+	var started atomic.Int32
+	clock := newFakeClock()
+	running := make(chan struct{}, 4)
+	e := newEngine(t, clock, Options{Customers: []string{"acme", "globex"}, Checks: []Check{{Name: "ssh", Severity: SeverityCritical, Timeout: time.Minute, Run: func(_ context.Context, customer string) error {
+		if customer == "acme" {
+			started.Add(1)
+			running <- struct{}{}
+			<-block
+		}
+		return nil
+	}}}})
+	first := make(chan []Report, 1)
+	go func() {
+		reports, _ := e.Run(context.Background(), "acme")
+		first <- reports
+	}()
+	clock.idle(t, 1)
+	<-running // the check itself has started, not only the wait for its timeout
+	clock.Advance(time.Minute)
+	if r := <-first; r[0].Checks[0].Detail != "no answer within 1m0s" {
+		t.Fatalf("first run %+v, want its own timeout", r)
+	}
+	for i := 0; i < 3; i++ {
+		reports, err := e.Run(context.Background(), "acme")
+		if err != nil || reports[0].Checks[0].Status != StatusTimeout || reports[0].Checks[0].Detail != "not started: the previous run is still running" || reports[0].Checks[0].Duration != 0 {
+			t.Fatalf("run %d while the check hangs: %+v %v", i, reports, err)
+		}
+	}
+	if reports, err := e.Run(context.Background(), "globex"); err != nil || reports[0].Health != HealthOK {
+		t.Fatalf("globex while acme's check hangs: %+v %v", reports, err)
+	}
+	if n := started.Load(); n != 1 {
+		t.Fatalf("acme's check started %d times, want 1", n)
+	}
+	close(block)
+	eventually(t, "the hung check returns", func() bool {
+		e.mu.Lock()
+		defer e.mu.Unlock()
+		return len(e.leaked) == 0
+	})
+	reports, err := e.Run(context.Background(), "acme")
+	if err != nil || reports[0].Health != HealthOK || started.Load() != 2 {
+		t.Fatalf("after the check returned: %+v %v, %d starts; want a new ok run", reports, err, started.Load())
+	}
+}
+
+// #68-K1 D2: a run cancelled while its check ignores the context also leaves that check
+// running, so the next run does not start it again.
+func TestCancelledHungCheckNotRestarted(t *testing.T) {
+	block := make(chan struct{})
+	t.Cleanup(func() { close(block) })
+	var started atomic.Int32
+	running := make(chan struct{}, 1)
+	clock := newFakeClock()
+	e := newEngine(t, clock, Options{Customers: []string{"acme"}, Checks: []Check{{Name: "ssh", Severity: SeverityCritical, Run: func(context.Context, string) error {
+		started.Add(1)
+		running <- struct{}{}
+		<-block
+		return nil
+	}}}})
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, err := e.Run(ctx, "acme")
+		done <- err
+	}()
+	clock.idle(t, 1)
+	<-running // the check itself has started, not only the wait for its timeout
+	cancel()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled run: %v", err)
+	}
+	reports, err := e.Run(context.Background(), "acme")
+	if err != nil || reports[0].Checks[0].Detail != "not started: the previous run is still running" || started.Load() != 1 {
+		t.Fatalf("after the cancel: %+v %v, %d starts", reports, err, started.Load())
+	}
+}
+
+// #68-K1 D1: a fresh measurement resets the missed count; only slots missed after it count, and
+// a fresh view shows none.
+func TestMissedResetsAfterFreshMeasurement(t *testing.T) {
+	c := &calls{}
+	release := make(chan struct{})
+	third := make(chan struct{})
+	clock := newFakeClock()
+	e := newEngine(t, clock, Options{Customers: []string{"acme"}, Checks: []Check{{Name: "ssh", Severity: SeverityCritical, Run: func(ctx context.Context, customer string) error {
+		// The third run (the second catch-up) waits, so the view is read while it runs.
+		if c.record(clock, customer) == 3 {
+			close(third)
+			select {
+			case <-release:
+			case <-ctx.Done():
+			}
+		}
+		return nil
+	}}}})
+	start(t, e)
+	clock.idle(t, 2)
+
+	sleep := func(d time.Duration) {
+		clock.Advance(d)
+		clock.idle(t, 2) // the catch-up check and the next wait
+	}
+	// Before the catch-up ends, the view is stale with 12 missed; see TestOverdueAfterSleep.
+	sleep(3*time.Hour + 7*time.Minute)
+	v := view(t, e, "acme")
+	if v.Stale || v.Missed != 0 || !v.MissedFrom.IsZero() || !v.MissedTo.IsZero() {
+		t.Fatalf("after the catch-up: %+v, want fresh and no missed count", v)
+	}
+	if got := v.String(); strings.Contains(got, "missed") {
+		t.Fatalf("display %q names missed slots on a fresh view", got)
+	}
+
+	// A second sleep counts only its own slots, while the result is stale.
+	e.mu.Lock()
+	base := e.missedBase["acme"]
+	e.mu.Unlock()
+	if base != 12 {
+		t.Fatalf("baseline %d, want the 12 slots of the first sleep", base)
+	}
+	clock.Advance(time.Hour + 3*time.Minute)
+	<-third
+	v = view(t, e, "acme")
+	if !v.Stale || v.Missed != 4 {
+		t.Fatalf("second sleep during the catch-up: %+v, want stale and 4 missed", v)
+	}
+	close(release)
+	clock.idle(t, 2)
+	if v := view(t, e, "acme"); v.Stale || v.Missed != 0 {
+		t.Fatalf("after the second catch-up: %+v, want fresh and no missed count", v)
+	}
+}
+
+// #68-K1 D1: the baseline is the count when the cached measurement started. A manual run that
+// began before a sleep and ends after it is cached while the catch-up still runs; its view is
+// stale and counts the slots of the sleep.
+func TestMissedBaseTakenAtStart(t *testing.T) {
+	c := &calls{}
+	manual, catchUp := make(chan struct{}), make(chan struct{})
+	started := make(chan int, 8)
+	clock := newFakeClock()
+	// The timeout outlasts the sleep, so the held manual check is not abandoned (and then, by
+	// D2, the catch-up refused) when the clock jumps.
+	e := newEngine(t, clock, Options{Customers: []string{"acme"}, Checks: []Check{{Name: "ssh", Severity: SeverityCritical, Timeout: 24 * time.Hour, Run: func(ctx context.Context, customer string) error {
+		n := c.record(clock, customer)
+		started <- n
+		gate := map[int]chan struct{}{2: manual, 3: catchUp}[n]
+		if gate != nil {
+			select {
+			case <-gate:
+			case <-ctx.Done():
+			}
+		}
+		return nil
+	}}}})
+	start(t, e)
+	clock.idle(t, 2)
+	<-started // the first slot
+	done := make(chan []Report, 1)
+	go func() {
+		reports, _ := e.Run(context.Background(), "acme")
+		done <- reports
+	}()
+	<-started // the manual run is held
+	clock.idle(t, 1)
+	clock.Advance(3*time.Hour + 7*time.Minute)
+	<-started // the catch-up is held
+	close(manual)
+	<-done
+	if v := view(t, e, "acme"); !v.Stale || v.Trigger != TriggerManual || v.Missed != 12 {
+		t.Fatalf("manual result cached during the catch-up: %+v, want stale with the 12 slots of the sleep", v)
+	}
+	close(catchUp)
+	eventually(t, "the catch-up result is cached", func() bool { return view(t, e, "acme").Trigger == TriggerScheduled })
+	if v := view(t, e, "acme"); v.Stale || v.Missed != 0 {
+		t.Fatalf("after the catch-up: %+v, want fresh and no missed count", v)
+	}
+}
+
+// #68-K1 D2: a check that returned before its caller stopped waiting is not counted as leaked.
+func TestAbandonFinishedCheck(t *testing.T) {
+	e := newEngine(t, newFakeClock(), Options{Customers: []string{"acme"}, Checks: []Check{{Name: "ssh", Severity: SeverityCritical, Run: ok}}})
+	finished, abandoned := true, false
+	e.abandon("ssh\x00acme", &finished, &abandoned)
+	if abandoned || len(e.leaked) != 0 {
+		t.Fatalf("abandoned %v, leaked %v; want nothing recorded for a finished check", abandoned, e.leaked)
+	}
+	finished = false
+	e.abandon("ssh\x00acme", &finished, &abandoned)
+	if !abandoned || e.leaked["ssh\x00acme"] != 1 {
+		t.Fatalf("abandoned %v, leaked %v; want the running check recorded", abandoned, e.leaked)
+	}
+}
+
+// #68-K1 D1: a fresh view never carries a missed count, even when slots were missed after
+// the cached result started (a measurement that outlived them).
+func TestFreshViewShowsNoMissed(t *testing.T) {
+	clock := newFakeClock()
+	e := newEngine(t, clock, Options{Customers: []string{"acme"}, Checks: []Check{{Name: "ssh", Severity: SeverityCritical, Run: ok}}})
+	if _, err := e.Run(context.Background(), "acme"); err != nil {
+		t.Fatal(err)
+	}
+	e.mu.Lock()
+	e.missedBase["acme"] = -3 // stands for three slots missed after the cached result started
+	e.mu.Unlock()
+	start(t, e)
+	clock.idle(t, 2)
+	if v := view(t, e, "acme"); v.Stale || v.Missed != 0 {
+		t.Fatalf("fresh view %+v, want no missed count", v)
 	}
 }
 

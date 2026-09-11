@@ -6,7 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"net"
+	"time"
 )
+
+// failedWriteWait bounds the read for a refusal after a failed write.
+const failedWriteWait = 2 * time.Second
 
 // Client talks to the service over its socket. Each call is one connection; closing the
 // connection, or cancelling ctx, detaches from a run without stopping it.
@@ -14,9 +18,18 @@ type Client struct {
 	// Socket is the service socket (SocketPath).
 	Socket string
 
-	// connected, when set, is called after the connection is made and before the request is
-	// written. Tests use it.
-	connected func()
+	// connected, when set, is called with the connection after it is made and before the
+	// request is written. Tests use it.
+	connected func(net.Conn)
+	// writeWait, when set, replaces failedWriteWait. Tests use it.
+	writeWait time.Duration
+}
+
+func (c Client) failedWriteWait() time.Duration {
+	if c.writeWait > 0 {
+		return c.writeWait
+	}
+	return failedWriteWait
 }
 
 // Hello identifies the running service.
@@ -147,13 +160,19 @@ func (c Client) call(ctx context.Context, req Request, each func(Response) (bool
 	defer stop()
 
 	if c.connected != nil {
-		c.connected()
+		c.connected(conn)
 	}
 
 	req.Protocol = ProtocolVersion
 	// The service may refuse and close before it reads a byte (the owner check), so a failed
 	// write is not the end: its refusal can already wait in the receive buffer.
 	werr := json.NewEncoder(conn).Encode(req)
+	if werr != nil {
+		// A refusal is already waiting or never comes: a silent peer must not hold the caller
+		// until its own deadline, or forever. An earlier end of ctx still closes the connection
+		// first (AfterFunc above).
+		_ = conn.SetReadDeadline(time.Now().Add(c.failedWriteWait()))
+	}
 	reader := bufio.NewReader(conn)
 	for {
 		line, err := readLine(reader)

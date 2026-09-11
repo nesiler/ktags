@@ -127,6 +127,12 @@ type Engine struct {
 	mu      sync.Mutex
 	reports map[string]Report
 	running map[string]int
+	// missedBase is the schedule's missed count of a customer when its cached report started;
+	// a view counts only the slots missed after it.
+	missedBase map[string]int
+	// leaked counts, per check and customer, the runs whose caller stopped waiting while the
+	// check had not returned. While one is alive the check is not started again.
+	leaked map[string]int
 }
 
 // New validates the options. It refuses a missing clock or redactor, no checks, a check without
@@ -185,14 +191,16 @@ func New(opts Options) (*Engine, error) {
 		concurrency = defaultConcurrency
 	}
 	e := &Engine{
-		clock:     opts.Clock,
-		redact:    opts.Redact,
-		checks:    slices.Clone(opts.Checks),
-		customers: slices.Sorted(slices.Values(opts.Customers)),
-		intervals: intervals,
-		slots:     make(chan struct{}, concurrency),
-		reports:   map[string]Report{},
-		running:   map[string]int{},
+		clock:      opts.Clock,
+		redact:     opts.Redact,
+		checks:     slices.Clone(opts.Checks),
+		customers:  slices.Sorted(slices.Values(opts.Customers)),
+		intervals:  intervals,
+		slots:      make(chan struct{}, concurrency),
+		reports:    map[string]Report{},
+		running:    map[string]int{},
+		missedBase: map[string]int{},
+		leaked:     map[string]int{},
 	}
 	jobs := make([]schedule.Job, 0, len(e.customers))
 	for _, customer := range e.customers {
@@ -267,6 +275,9 @@ func (e *Engine) measure(ctx context.Context, customer string, trigger Trigger) 
 		e.mu.Unlock()
 	}()
 
+	// The schedule counts the slots a catch-up run follows before it starts the run, so they
+	// are all in this count.
+	missedBase := e.scheduledMissed(customer)
 	r := Report{Customer: customer, Trigger: trigger, MeasuredAt: e.clock.Now(), Health: HealthOK}
 	for _, c := range e.checks {
 		res := e.runCheck(ctx, c, customer)
@@ -288,22 +299,58 @@ func (e *Engine) measure(ctx context.Context, customer string, trigger Trigger) 
 	// Runs of one customer may overlap; an older measurement never replaces a newer one.
 	if old, ok := e.reports[customer]; !ok || !r.MeasuredAt.Before(old.MeasuredAt) {
 		e.reports[customer] = r
+		e.missedBase[customer] = missedBase
 	}
 	return r, true
 }
 
+// scheduledMissed is the schedule's count of the customer's missed slots so far.
+func (e *Engine) scheduledMissed(customer string) int {
+	for _, st := range e.sched.States() {
+		if st.Name == jobName(customer) {
+			return st.Missed
+		}
+	}
+	return 0
+}
+
 // runCheck runs c and stops waiting at its timeout, even when c ignores its context. A check
 // that ignores the context keeps its goroutine until it returns, but no longer holds the slot.
+// While such a goroutine is alive the check is not started again for the customer, so a hung
+// check leaks at most one goroutine instead of one per run.
 func (e *Engine) runCheck(ctx context.Context, c Check, customer string) CheckResult {
 	timeout := c.Timeout
 	if timeout == 0 {
 		timeout = defaultTimeout
 	}
+	res := CheckResult{Check: c.Name, Severity: c.Severity, MeasuredAt: e.clock.Now()}
+	key := c.Name + "\x00" + customer
+	e.mu.Lock()
+	if e.leaked[key] > 0 {
+		e.mu.Unlock()
+		res.Status = StatusTimeout
+		res.Detail = "not started: the previous run is still running"
+		return res
+	}
+	e.mu.Unlock()
+
 	cctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	res := CheckResult{Check: c.Name, Severity: c.Severity, MeasuredAt: e.clock.Now()}
+	// finished and abandoned are guarded by e.mu.
+	var finished, abandoned bool
 	done := make(chan error, 1)
-	go func() { done <- c.Run(cctx, customer) }()
+	go func() {
+		err := c.Run(cctx, customer)
+		e.mu.Lock()
+		finished = true
+		if abandoned {
+			if e.leaked[key]--; e.leaked[key] == 0 {
+				delete(e.leaked, key)
+			}
+		}
+		e.mu.Unlock()
+		done <- err
+	}()
 	select {
 	case err := <-done:
 		res.Status = StatusOK
@@ -314,11 +361,23 @@ func (e *Engine) runCheck(ctx context.Context, c Check, customer string) CheckRe
 	case <-e.clock.After(timeout):
 		res.Status = StatusTimeout
 		res.Detail = fmt.Sprintf("no answer within %s", timeout)
+		e.abandon(key, &finished, &abandoned)
 	case <-ctx.Done():
 		// The caller reads ctx and discards this result.
+		e.abandon(key, &finished, &abandoned)
 	}
 	res.Duration = e.clock.Now().Sub(res.MeasuredAt)
 	return res
+}
+
+// abandon records a check goroutine that is still running after its caller stopped waiting.
+func (e *Engine) abandon(key string, finished, abandoned *bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if !*finished {
+		*abandoned = true
+		e.leaked[key]++
+	}
 }
 
 // View is what a client shows for one customer: the latest result, when it was measured and
@@ -336,8 +395,9 @@ type View struct {
 	Interval time.Duration
 	// Next is the next scheduled slot; zero before Start.
 	Next time.Time
-	// Missed counts the scheduled slots that could not run; the latest group spans MissedFrom
-	// to MissedTo.
+	// Missed counts the scheduled slots that could not run since the latest measurement started;
+	// the latest group spans MissedFrom to MissedTo. It is zero while the view is fresh: a fresh
+	// measurement resets it, and past slots stay in the run history.
 	Missed     int
 	MissedFrom time.Time
 	MissedTo   time.Time
@@ -364,7 +424,10 @@ func (e *Engine) Views() []View {
 			v.Stale = now.Before(r.MeasuredAt) || now.Sub(r.MeasuredAt) > interval+grace(interval)
 		}
 		if st, ok := states[jobName(customer)]; ok {
-			v.Next, v.Missed, v.MissedFrom, v.MissedTo = st.Next, st.Missed, st.MissedFrom, st.MissedTo
+			v.Next = st.Next
+			if missed := st.Missed - e.missedBase[customer]; missed > 0 && v.Stale {
+				v.Missed, v.MissedFrom, v.MissedTo = missed, st.MissedFrom, st.MissedTo
+			}
 		}
 		out = append(out, v)
 	}

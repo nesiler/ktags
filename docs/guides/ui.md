@@ -62,7 +62,7 @@ run badge, mouse state. Bottom: hint bar (one line) and the command bar line.
 | empty | one line saying there are no customers yet; the hint bar offers `customer add` |
 | loading a tab | a spinner in the panel title naming what loads; previous content stays, marked stale if old |
 | stale | grey value with its age ("stale · 5h"); a check older than its interval is stale |
-| missed | a scheduled run that did not happen (laptop asleep, service stopped); as ADR-0001 requires, it is never run late. The count stays with the check: a stale check shows its last result greyed with its age plus the word "missed" (CLI "stale, N missed"), and a check that has since run fresh keeps its current value plus the count (CLI "fresh, N missed"). A missed run is never shown as ok or as completed |
+| missed | a scheduled run that did not happen (laptop asleep, service stopped). The scheduler never runs it late (`internal/core/schedule`); ADR-0001 requires that it is never represented as completed. A stale check shows its last result greyed with its age plus the word "missed" and the count of slots missed since its last measurement (CLI "stale, N missed"). A fresh measurement resets the count, so a fresh check shows no missed count; past slots stay in the run history. A missed run is never shown as ok or as completed |
 
 Reconnect keeps the last event cursor of every open run and resumes the stream from it
 (ADR-0002): no duplicate and no missing lines. If the cursor is no longer valid, the run view

@@ -11,9 +11,9 @@ import (
 	"github.com/nesiler/ktags/internal/service"
 )
 
-// restartFix rewrites and reloads the launchd definition: start writes it, and stop unloads a
-// job launchd would otherwise kickstart with its old definition.
-const restartFix = "ktags service stop && ktags service start"
+// restartFix rewrites and reloads the launchd definition: stop unloads the job, and start then
+// writes this build's definition and loads it. Start alone leaves a loaded job as it is.
+const restartFix = service.StaleFix
 
 func init() {
 	register(Check{ID: "service.agent", Title: "the launchd agent points at an existing ktags binary", Order: 30, Run: checkAgent})
@@ -47,6 +47,15 @@ func checkAgent(_ context.Context, env Env) []Result {
 		return []Result{{Status: StatusFail, Evidence: fmt.Sprintf("the launchd agent %s points at %s, which cannot be found: %v", def, program, errors.Unwrap(err)), Fix: restartFix}}
 	case !info.Mode().IsRegular() || info.Mode().Perm()&0o100 == 0:
 		return []Result{{Status: StatusFail, Evidence: fmt.Sprintf("the launchd agent %s points at %s, which is not an executable file", def, program), Fix: restartFix}}
+	}
+	if env.AgentStale != nil {
+		stale, err := env.AgentStale()
+		switch {
+		case err != nil:
+			return []Result{{Status: StatusWarn, Evidence: fmt.Sprintf("cannot compare the launchd agent %s with this build's: %v", def, err), Fix: restartFix}}
+		case stale:
+			return []Result{{Status: StatusWarn, Evidence: fmt.Sprintf("stale agent definition: %s differs from the one this ktags build writes", def), Fix: restartFix}}
+		}
 	}
 	return []Result{{Status: StatusOK, Evidence: "the launchd agent starts " + program}}
 }

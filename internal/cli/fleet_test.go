@@ -151,7 +151,9 @@ func TestFleetCells(t *testing.T) {
 		{"checking and runs", active(service.FleetEntry{Checking: true, ActiveRuns: []service.ActiveRunInfo{{ID: "r1", Action: "a"}, {ID: "r2", Action: "b"}}}), "health check, r1 (a), r2 (b)"},
 		{"fresh", freshness(service.FleetEntry{}), "fresh"},
 		{"stale", freshness(service.FleetEntry{Stale: true}), "stale"},
-		{"missed", freshness(service.FleetEntry{Missed: 3}), "fresh, 3 missed"},
+		{"stale and missed", freshness(service.FleetEntry{Stale: true, Missed: 3}), "stale, 3 missed"},
+		// #68-K1 D1: a fresh row shows no missed count, even if one arrives.
+		{"fresh never missed", freshness(service.FleetEntry{Missed: 3}), "fresh"},
 		{"no time", stampPtr(nil), "-"},
 		{"time", stampPtr(at(0)), "2026-09-11T12:00:00Z"},
 	}

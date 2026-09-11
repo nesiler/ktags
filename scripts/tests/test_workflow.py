@@ -445,16 +445,22 @@ class ReviewFollowUpContractTests(unittest.TestCase):
 
     def test_ui_missed_row_matches_cli(self):
         text = self.text("docs/guides/ui.md")
+        # #68 D1: the count resets on a fresh measurement and shows only while stale.
         self.assertIn(
-            "| missed | a scheduled run that did not happen (laptop asleep, service stopped); as "
-            "ADR-0001 requires, it is never run late.", text)
+            "| missed | a scheduled run that did not happen (laptop asleep, service stopped). The "
+            "scheduler never runs it late (`internal/core/schedule`); ADR-0001 requires that it is "
+            "never represented as completed.", text)
         self.assertIn(
-            "a stale check shows its last result greyed with its age plus the word \"missed\" "
-            "(CLI \"stale, N missed\"), and a check that has since run fresh keeps its current "
-            "value plus the count (CLI \"fresh, N missed\").", text)
+            "A stale check shows its last result greyed with its age plus the word \"missed\" and "
+            "the count of slots missed since its last measurement (CLI \"stale, N missed\"). A "
+            "fresh measurement resets the count, so a fresh check shows no missed count; past "
+            "slots stay in the run history.", text)
+        self.assertNotIn("fresh, N missed", text)
         self.assertIn("A missed run is never shown as ok or as completed |", text)
-        # The guide follows the CLI on main; this unit case pins the fresh wording there.
-        self.assertIn('"fresh, 3 missed"', (ROOT / "internal/cli/fleet_test.go").read_text())
+        # The guide follows the CLI on main; these unit cases pin both wordings there.
+        cells = (ROOT / "internal/cli/fleet_test.go").read_text()
+        self.assertIn('freshness(service.FleetEntry{Stale: true, Missed: 3}), "stale, 3 missed"', cells)
+        self.assertIn('freshness(service.FleetEntry{Missed: 3}), "fresh"', cells)
 
     def test_development_exit_two_covers_conflict(self):
         self.assertIn(

@@ -17,15 +17,16 @@ Closing a terminal only detaches from a run; stopping the service is an explicit
 
 commands:
   start                start the service in the background (macOS: launchd); does nothing
-                       when it already runs
-  status               show PID, version, protocol, socket and active runs; exit 1 when it
-                       is not running
+                       when it already runs or launchd still has it loaded
+  status               show PID, version, protocol, socket and active runs, and a stale
+                       agent definition; exit 1 when it is not running
   stop [--cancel-runs] stop the service; refused with exit 2 while runs are active, unless
                        --cancel-runs cancels them and records their results first
   run                  run the service in the foreground (what launchd executes); no --json
 
 --json data: start {"started","service"} · status {"running","socket","protocol","pid",
-"service","version","active_runs"} · stop {"was_running","cancelled":[run]}
+"service","version","active_runs","stale_agent"} · stop {"was_running","cancelled":[run]}
+("stale_agent" is present only when true)
 
 next: ktags service start
 `
@@ -38,6 +39,7 @@ type serviceDoc struct {
 	Service    string `json:"service,omitempty"`
 	Version    string `json:"version,omitempty"`
 	ActiveRuns int    `json:"active_runs"`
+	StaleAgent bool   `json:"stale_agent,omitempty"`
 }
 
 type startDoc struct {
@@ -51,7 +53,7 @@ type stopDoc struct {
 }
 
 func toServiceDoc(st service.Status) serviceDoc {
-	return serviceDoc{Running: st.Running, Socket: st.Socket, Protocol: st.Protocol, PID: st.PID, Service: st.Service, Version: st.Version, ActiveRuns: st.ActiveRuns}
+	return serviceDoc{Running: st.Running, Socket: st.Socket, Protocol: st.Protocol, PID: st.PID, Service: st.Service, Version: st.Version, ActiveRuns: st.ActiveRuns, StaleAgent: st.StaleAgent}
 }
 
 func (e *env) serviceCmd() *cobra.Command {
@@ -166,4 +168,7 @@ func (e *env) serviceStop(cancelRuns bool) error {
 
 func details(w io.Writer, st service.Status) {
 	_, _ = fmt.Fprintf(w, "  version   %s\n  protocol  %d\n  socket    %s\n  runs      %d active\n", st.Version, st.Protocol, st.Socket, st.ActiveRuns)
+	if st.StaleAgent {
+		_, _ = fmt.Fprintf(w, "  agent     stale agent definition: the service runs the definition it was started with\n  next: %s\n", service.StaleFix)
+	}
 }

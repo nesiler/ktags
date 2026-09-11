@@ -319,6 +319,58 @@ func (l rawLauncher) Launch(context.Context) error {
 
 func (rawLauncher) Unload(context.Context) error { return nil }
 
+// staleLauncher is an in-process launcher whose installed definition reports stale, or fails
+// to compare.
+type staleLauncher struct {
+	*inProcess
+	stale bool
+	err   error
+}
+
+func (s staleLauncher) Stale() (bool, error) { return s.stale, s.err }
+
+// #68-K1 D3: status and start of a running service report a stale launcher definition; start
+// launches nothing for it.
+func TestStatusReportsStaleAgent(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		l    staleLauncher
+		want bool
+	}{
+		{"stale", staleLauncher{stale: true}, true},
+		{"current", staleLauncher{}, false},
+		{"cannot compare", staleLauncher{stale: true, err: errors.New("permission denied")}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			runtime, opts, _ := bareOptions(t)
+			tc.l.inProcess = &inProcess{t: t, runtime: runtime, opts: opts}
+			lc := Lifecycle{Socket: SocketPath(runtime), Launcher: tc.l, Timeout: 5 * time.Second, Poll: 5 * time.Millisecond}
+			ctx := context.Background()
+			if _, _, err := lc.Start(ctx); err != nil {
+				t.Fatal(err)
+			}
+			st, err := lc.Status(ctx)
+			if err != nil || st.StaleAgent != (tc.want && tc.l.err == nil) {
+				t.Fatalf("status %+v, %v; want stale agent %v", st, err, tc.want && tc.l.err == nil)
+			}
+			st, started, err := lc.Start(ctx)
+			if err != nil || started || st.StaleAgent != (tc.want && tc.l.err == nil) || tc.l.launches != 1 {
+				t.Fatalf("second start %+v started %v, %v, %d launches", st, started, err, tc.l.launches)
+			}
+		})
+	}
+}
+
+// A service that does not answer carries no stale mark: nothing runs the old definition.
+func TestStatusNotRunningNoStaleAgent(t *testing.T) {
+	runtime, opts, _ := bareOptions(t)
+	lc := Lifecycle{Socket: SocketPath(runtime), Launcher: staleLauncher{inProcess: &inProcess{t: t, runtime: runtime, opts: opts}, stale: true}}
+	st, err := lc.Status(context.Background())
+	if err != nil || st.Running || st.StaleAgent {
+		t.Fatalf("status %+v, %v", st, err)
+	}
+}
+
 // A launch that brings up a service of another protocol version ends the wait with the mismatch.
 func TestStartReportsMismatchAfterLaunch(t *testing.T) {
 	socket := filepath.Join(shortDir(t), "service.sock")

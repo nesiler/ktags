@@ -32,7 +32,19 @@ type Status struct {
 	Service    string
 	Version    string
 	ActiveRuns int
+	// StaleAgent is set when the launcher's installed definition differs from the one this
+	// build would write; the running service keeps the old one until it is stopped and started.
+	StaleAgent bool
 }
+
+// staler is a Launcher whose installed definition can differ from the one Launch would write.
+type staler interface {
+	Stale() (bool, error)
+}
+
+// StaleFix replaces a stale launcher definition. Stop refuses while runs are active, so the
+// fix never interrupts work.
+const StaleFix = "ktags service stop && ktags service start"
 
 // StopResult is the outcome of a stop.
 type StopResult struct {
@@ -76,6 +88,12 @@ func (l Lifecycle) Status(ctx context.Context) (Status, error) {
 		return st, err
 	}
 	st.Running = true
+	// An unreadable definition is left to ktags doctor, which names its own fix.
+	if s, ok := l.Launcher.(staler); ok {
+		if stale, err := s.Stale(); err == nil {
+			st.StaleAgent = stale
+		}
+	}
 	st.Protocol = ProtocolVersion
 	st.PID = hello.PID
 	st.Service = hello.Service

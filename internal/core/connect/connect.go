@@ -281,6 +281,10 @@ func (r *Runner) run(ctx context.Context, target, customer, where string, steps 
 			ctxErr := cctx.Err()
 			cancel()
 			res.Duration = r.now().Sub(res.MeasuredAt)
+			if err == nil && errors.Is(ctxErr, context.DeadlineExceeded) {
+				// The deadline is the contract: an answer after it is a timeout, never ok.
+				err = errors.New("answered after the deadline")
+			}
 			if err == nil {
 				res.Status = StatusOK
 				res.Next = "none; re-check once the result is no longer fresh"
