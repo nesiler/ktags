@@ -8,9 +8,9 @@
 │  ○ missed · 7h lima             test      │┃connection  reachable · 5m ago                       ┃
 │  ○ stale · 2d  papa             prod      │┃versions    rancher v2.9.1, rke2 v1.30.4+rke2r1      ┃
 │  ○ never       hotel            staging   │┃                                                     ┃
-│  ○ never       india            test      │┃STATUS          CHECK          AGE      DETAIL       ┃
-│  ⚠ warn        echo             prod      │┃✓ ok            ssh.endpoint   5m ago                ┃
-│  ⚠ warn        foxtrot          staging   │┃✗ fail          kube.endpoint  5m ago   dial tcp 203…┃
+│  ○ never       india            test      │┃STATUS           CHECK          AGE      DETAIL      ┃
+│  ⚠ warn        echo             prod      │┃✓ ok             ssh.endpoint   5m ago               ┃
+│  ⚠ warn        foxtrot          staging   │┃✗ fail           kube.endpoint  5m ago   dial tcp 20…┃
 │  ✓ ok          alpha            test    ⠋ │┃                                                     ┃
 │  ✓ ok          bravo            prod    ⠋ │┃                                                     ┃
 │  ✓ ok          charlie          prod      │┃                                                     ┃

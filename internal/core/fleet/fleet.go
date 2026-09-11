@@ -106,6 +106,24 @@ func StateOf(e Entry) State {
 	}
 }
 
+// Runbook is the runbook the entry's row shows: that of the first failing critical check, else
+// of the first check that is not ok. Empty when every check is ok or none names a runbook.
+func Runbook(e Entry) string {
+	first := ""
+	for _, c := range e.Health.Checks {
+		if c.Status == health.StatusOK || c.Runbook == "" {
+			continue
+		}
+		if c.Severity == health.SeverityCritical && c.Status != health.StatusNotConfigured {
+			return c.Runbook
+		}
+		if first == "" {
+			first = c.Runbook
+		}
+	}
+	return first
+}
+
 // Sort orders entries by state, most urgent first, then by customer. The order depends only on
 // the entries, never on the order they came in.
 func Sort(entries []Entry) {

@@ -62,6 +62,9 @@ func (h Health) Run(ctx context.Context, req Request, progress Progress) (Result
 			passed++
 		}
 		msg := fmt.Sprintf("%s %s (%s)", c.Check, c.Status, c.Severity)
+		if c.Runbook != "" {
+			msg += " [runbook " + c.Runbook + "]"
+		}
 		if c.Detail != "" {
 			msg += ": " + c.Detail
 		}

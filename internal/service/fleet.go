@@ -54,6 +54,7 @@ func (m *manager) fleetEntry(c CustomerInfo, e fleet.Entry, runs []ActiveRunInfo
 		Cluster:         c.Cluster,
 		Problem:         c.Problem,
 		State:           string(fleet.StateOf(e)),
+		Runbook:         fleet.Runbook(e),
 		Connection:      ConnectionInfo{State: string(e.Connection.State), Detail: m.redact(e.Connection.Detail), MeasuredAt: optionalTime(e.Connection.MeasuredAt)},
 		Health:          string(h.Health),
 		MeasuredAt:      optionalTime(h.MeasuredAt),
@@ -81,6 +82,7 @@ func (m *manager) fleetEntry(c CustomerInfo, e fleet.Entry, runs []ActiveRunInfo
 			Severity:   string(r.Severity),
 			Status:     string(r.Status),
 			Detail:     m.redact(r.Detail),
+			Runbook:    r.Runbook,
 			MeasuredAt: r.MeasuredAt,
 			DurationMS: r.Duration.Milliseconds(),
 		})

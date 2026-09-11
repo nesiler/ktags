@@ -39,6 +39,11 @@ func RecordPath(customerDir string) string {
 	return filepath.Join(customerDir, "group_vars", "all", recordFile)
 }
 
+// KnownHostsPath is the file of pinned host keys inside a customer directory (ansible.md §4).
+func KnownHostsPath(customerDir string) string {
+	return filepath.Join(customerDir, "known_hosts")
+}
+
 // Load reads and validates the record of the customer directory dir. Unknown fields, duplicate
 // keys and a customer id that differs from the directory name are refused.
 func Load(ctx context.Context, dir string) (Record, error) {

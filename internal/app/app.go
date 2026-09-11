@@ -35,11 +35,12 @@ import (
 // Run wires the application and executes the command-line adapter.
 func Run(version string, args []string, stdout, stderr io.Writer) int {
 	return runWith(version, args, stdout, stderr, deps{
-		env:      paths.OSEnv(),
-		launcher: platformLauncher(goruntime.GOOS, os.Executable),
-		stdin:    os.Stdin,
-		terminal: isTerminal(os.Stdin),
-		screen:   isTerminal(os.Stdin) && isTerminal(os.Stdout),
+		env:       paths.OSEnv(),
+		launcher:  platformLauncher(goruntime.GOOS, os.Executable),
+		healthFor: realHealth,
+		stdin:     os.Stdin,
+		terminal:  isTerminal(os.Stdin),
+		screen:    isTerminal(os.Stdin) && isTerminal(os.Stdout),
 		interrupt: func(ctx context.Context) (context.Context, context.CancelFunc) {
 			return signal.NotifyContext(ctx, os.Interrupt)
 		},
@@ -58,9 +59,12 @@ type deps struct {
 	launcher func(paths.Roots) service.Launcher
 	// actions are registered in the service in addition to the built-in ones.
 	actions []actions.Action
-	// health composes the health engine and the health action into the service; nil measures
-	// nothing. No real check adapter exists yet, so only tests set it.
+	// health composes the health engine and the health action into the service with the given
+	// checks; tests set it. When nil, healthFor builds it from the real adapters; when both are
+	// nil the service measures nothing.
 	health *healthConfig
+	// healthFor composes the real connection adapters over the resolved roots; Run sets it.
+	healthFor func(roots paths.Roots, env paths.Env) (*healthConfig, error)
 	// timeout bounds the lifecycle waits; zero takes the service default.
 	timeout time.Duration
 	// stdin answers confirmations when terminal is set; interrupt detaches a followed run.
@@ -228,14 +232,20 @@ func (c serviceControl) Run(ctx context.Context, stdout io.Writer) error {
 		// launchd writes the service's stdout to the service log.
 		Logger: slog.New(slog.NewTextHandler(stdout, nil)),
 	}
+	cfg := c.deps.health
+	if cfg == nil && c.deps.healthFor != nil {
+		if cfg, err = c.deps.healthFor(c.roots, c.deps.env); err != nil {
+			return err
+		}
+	}
 	var engine *health.Engine
-	if c.deps.health != nil {
-		if engine, err = newHealthEngine(ctx, c.deps.health, c.roots.Data.Path); err != nil {
+	if cfg != nil {
+		if engine, err = newHealthEngine(ctx, cfg, c.roots.Data.Path); err != nil {
 			return err
 		}
 		registered = append(slices.Clone(registered), actions.NewHealth(engine))
-		opts.Fleet = healthSource{views: engine.Views}
-		opts.Clock = c.deps.health.clock
+		opts.Fleet = healthSource{views: engine.Views, connection: cfg.connection}
+		opts.Clock = cfg.clock
 	}
 	if opts.Registry, err = actions.NewRegistry(registered...); err != nil {
 		return err

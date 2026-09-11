@@ -185,3 +185,33 @@ func TestMeasuredAge(t *testing.T) {
 		}
 	}
 }
+
+// #65 D4a and K3: the row names the runbook of the check behind its state, and so does every
+// check that is not ok, in the human text and the JSON document alike.
+func TestFleetListRunbook(t *testing.T) {
+	control, client := newFake()
+	client.fleet = testFleet()
+	mike := &client.fleet.Customers[1]
+	mike.Runbook = "kube-api-unreachable"
+	mike.Checks[1].Runbook = "kube-api-unreachable"
+	code, stdout, _ := ktags(control, call{}, "fleet", "list")
+	if code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	lines := strings.Split(stdout, "\n")
+	header, row := "", ""
+	for _, l := range lines {
+		if strings.Contains(l, "STATE") {
+			header = l
+		}
+		if strings.Contains(l, " mike ") && strings.HasPrefix(l, "  fail") {
+			row = l
+		}
+	}
+	if !strings.Contains(header, "RUNBOOK") || !strings.Contains(row, "kube-api-unreachable") {
+		t.Fatalf("header %q row %q, want the runbook column\n%s", header, row, stdout)
+	}
+	contains(t, "fleet list", stdout, "mike kube.endpoint failed (critical, measured 2026-09-11T11:55:00Z, 12ms) [runbook kube-api-unreachable]: dial tcp")
+	_, stdout, _ = ktags(control, call{}, "fleet", "list", "--json")
+	contains(t, "fleet list --json", stdout, `"runbook": "kube-api-unreachable"`)
+}

@@ -83,6 +83,9 @@ func (t SSHTarget) validate() error {
 type APITarget struct {
 	Customer string
 	URL      string
+	// CA is the public PEM CA bundle the server's certificate must chain to; empty means the
+	// system trust store. Verification is never skipped.
+	CA string
 }
 
 func (t APITarget) String() string { return t.Customer + " " + t.URL }
@@ -128,12 +131,19 @@ type API interface {
 // Status is the outcome of one check.
 type Status string
 
-// Statuses. Skipped is never green: the check did not run.
+// Statuses. Skipped and not configured are never green: the check did not measure anything.
 const (
 	StatusOK      Status = "ok"
 	StatusFailed  Status = "failed"
 	StatusSkipped Status = "skipped"
+	// StatusNotConfigured: the adapter lacks what the check needs, such as credentials.
+	StatusNotConfigured Status = "not_configured"
 )
+
+// ErrNotConfigured is what an adapter returns, wrapped or bare, for a check it has nothing to
+// run with, such as credentials the secret store does not provide yet. The check is reported
+// not configured and the checks after it are skipped.
+var ErrNotConfigured = errors.New("not configured")
 
 // Result is one check's outcome. Target, Detail and Next have passed the redactor.
 type Result struct {
@@ -151,6 +161,9 @@ type Result struct {
 	FreshUntil time.Time
 	// Next is the read-only next step for the operator.
 	Next string
+	// Runbook is the stable runbook id of a failed or not configured result; a skipped result
+	// carries the runbook of the check that blocked it. Empty when ok or cancelled.
+	Runbook string
 }
 
 // Fresh reports whether the result still describes the present at now. A result measured after
@@ -224,14 +237,34 @@ type step struct {
 
 // SSH runs ssh.endpoint, ssh.auth and ssh.sudo against t.
 func (r *Runner) SSH(ctx context.Context, t SSHTarget) ([]Result, error) {
+	return r.SSHThrough(ctx, t, "ssh.sudo")
+}
+
+// SSHThrough runs the SSH checks in order and stops after the named one, so that measuring
+// ssh.auth does not also run sudo. It refuses a name that is not an SSH check.
+func (r *Runner) SSHThrough(ctx context.Context, t SSHTarget, check string) ([]Result, error) {
 	if err := t.validate(); err != nil {
 		return nil, r.refusal(err)
 	}
-	return r.run(ctx, t.String(), t.Customer, t.address(), []step{
+	steps, err := through([]step{
 		{"ssh.endpoint", []Kind{KindDNS, KindTCP, KindHostKey}, func(ctx context.Context) error { return r.ssh.Reach(ctx, t) }},
 		{"ssh.auth", []Kind{KindSSHAuth}, func(ctx context.Context) error { return r.ssh.Authenticate(ctx, t) }},
 		{"ssh.sudo", []Kind{KindSudo}, func(ctx context.Context) error { return r.ssh.Sudo(ctx, t) }},
-	}), nil
+	}, check)
+	if err != nil {
+		return nil, err
+	}
+	return r.run(ctx, t.String(), t.Customer, t.address(), steps), nil
+}
+
+// through cuts steps after the named one.
+func through(steps []step, check string) ([]step, error) {
+	for i, s := range steps {
+		if s.name == check {
+			return steps[:i+1], nil
+		}
+	}
+	return nil, &Error{Problem: fmt.Sprintf("no check named %q for this target", check), Next: "report this as a bug"}
 }
 
 // refusal masks a target refusal: it quotes inventory names, which pass the redactor like every
@@ -246,35 +279,50 @@ func (r *Runner) refusal(err error) error {
 
 // Kubernetes runs kube.endpoint, kube.auth and kube.authz against t.
 func (r *Runner) Kubernetes(ctx context.Context, t APITarget) ([]Result, error) {
-	return r.api(ctx, "kube", r.kube, t, KindKubeAPI, KindKubeAuth, KindKubeForbidden)
+	return r.KubernetesThrough(ctx, t, "kube.authz")
+}
+
+// KubernetesThrough runs the Kubernetes checks in order and stops after the named one.
+func (r *Runner) KubernetesThrough(ctx context.Context, t APITarget, check string) ([]Result, error) {
+	return r.api(ctx, "kube", r.kube, t, check, KindKubeAPI, KindKubeAuth, KindKubeForbidden)
 }
 
 // Rancher runs rancher.endpoint, rancher.auth and rancher.authz against t.
 func (r *Runner) Rancher(ctx context.Context, t APITarget) ([]Result, error) {
-	return r.api(ctx, "rancher", r.rancher, t, KindRancherAPI, KindRancherAuth, KindRancherForbidden)
+	return r.RancherThrough(ctx, t, "rancher.authz")
 }
 
-func (r *Runner) api(ctx context.Context, prefix string, a API, t APITarget, reach, auth, authz Kind) ([]Result, error) {
+// RancherThrough runs the Rancher checks in order and stops after the named one.
+func (r *Runner) RancherThrough(ctx context.Context, t APITarget, check string) ([]Result, error) {
+	return r.api(ctx, "rancher", r.rancher, t, check, KindRancherAPI, KindRancherAuth, KindRancherForbidden)
+}
+
+func (r *Runner) api(ctx context.Context, prefix string, a API, t APITarget, check string, reach, auth, authz Kind) ([]Result, error) {
 	if err := t.validate(); err != nil {
 		return nil, r.refusal(err)
 	}
-	return r.run(ctx, t.String(), t.Customer, t.URL, []step{
+	steps, err := through([]step{
 		{prefix + ".endpoint", []Kind{KindDNS, KindTCP, reach}, func(ctx context.Context) error { return a.Reach(ctx, t) }},
 		{prefix + ".auth", []Kind{auth}, func(ctx context.Context) error { return a.Authenticate(ctx, t) }},
 		{prefix + ".authz", []Kind{authz}, func(ctx context.Context) error { return a.Authorize(ctx, t) }},
-	}), nil
+	}, check)
+	if err != nil {
+		return nil, err
+	}
+	return r.run(ctx, t.String(), t.Customer, t.URL, steps), nil
 }
 
 func (r *Runner) run(ctx context.Context, target, customer, where string, steps []step) []Result {
 	results := make([]Result, 0, len(steps))
-	blocked := ""
+	blocked, blockedHow, blockedRunbook := "", "", ""
 	for _, s := range steps {
 		res := Result{Check: s.name, Target: r.redact(target), MeasuredAt: r.now()}
 		switch {
 		case blocked != "":
 			res.Status = StatusSkipped
-			res.Detail = "not run: " + blocked + " failed"
+			res.Detail = "not run: " + blocked + " " + blockedHow
 			res.Next = "fix " + blocked + " first; its result names the next step"
+			res.Runbook = blockedRunbook
 		default:
 			cctx, cancel := context.WithTimeout(ctx, r.timeout)
 			err := s.run(cctx)
@@ -290,10 +338,19 @@ func (r *Runner) run(ctx context.Context, target, customer, where string, steps 
 				res.Next = "none; re-check once the result is no longer fresh"
 				break
 			}
+			if ctxErr == nil && errors.Is(err, ErrNotConfigured) {
+				res.Status = StatusNotConfigured
+				res.Detail = err.Error()
+				res.Runbook = notConfiguredRunbook(s.name)
+				res.Next = "nothing to fix on the customer; this check needs configuration ktags does not have yet (runbook " + res.Runbook + ")"
+				blocked, blockedHow, blockedRunbook = s.name, "is not configured", res.Runbook
+				break
+			}
 			res.Status = StatusFailed
 			res.Kind, res.Detail = r.classify(ctxErr, err, s.kinds)
 			res.Next = nextStep(res.Kind, customer, where)
-			blocked = s.name
+			res.Runbook = runbook(s.name, res.Kind)
+			blocked, blockedHow, blockedRunbook = s.name, "failed", res.Runbook
 		}
 		res.Detail = r.redact(res.Detail)
 		res.Next = r.redact(res.Next)

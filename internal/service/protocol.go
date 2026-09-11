@@ -120,8 +120,10 @@ type FleetEntry struct {
 	Environment string `json:"environment,omitempty"`
 	Cluster     string `json:"cluster,omitempty"`
 	// Problem is set when the inventory record is refused.
-	Problem    string         `json:"problem,omitempty"`
-	State      string         `json:"state"`
+	Problem string `json:"problem,omitempty"`
+	State   string `json:"state"`
+	// Runbook is the runbook of the check behind the state (core/fleet Runbook).
+	Runbook    string         `json:"runbook,omitempty"`
 	Connection ConnectionInfo `json:"connection"`
 	Health     string         `json:"health"`
 	// MeasuredAt is absent when the customer has never been measured.
@@ -157,6 +159,7 @@ type CheckInfo struct {
 	Severity   string    `json:"severity"`
 	Status     string    `json:"status"`
 	Detail     string    `json:"detail,omitempty"`
+	Runbook    string    `json:"runbook,omitempty"`
 	MeasuredAt time.Time `json:"measured_at"`
 	DurationMS int64     `json:"duration_ms"`
 }

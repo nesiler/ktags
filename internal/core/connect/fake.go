@@ -9,6 +9,17 @@ type Script struct {
 	Authz    error
 	// Hang makes the endpoint check wait until its context ends, like a silent network.
 	Hang bool
+	// HangAuthz makes the authorization check wait until its context ends, like a command
+	// that never returns.
+	HangAuthz bool
+}
+
+func (s Script) authz(ctx context.Context) error {
+	if s.HangAuthz {
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	return s.Authz
 }
 
 func (s Script) endpoint(ctx context.Context) error {
@@ -29,7 +40,7 @@ func (f FakeSSH) Reach(ctx context.Context, _ SSHTarget) error { return f.endpoi
 func (f FakeSSH) Authenticate(context.Context, SSHTarget) error { return f.Auth }
 
 // Sudo returns Script.Authz.
-func (f FakeSSH) Sudo(context.Context, SSHTarget) error { return f.Authz }
+func (f FakeSSH) Sudo(ctx context.Context, _ SSHTarget) error { return f.authz(ctx) }
 
 // FakeAPI is a Kubernetes or Rancher adapter that returns its Script without touching the network.
 type FakeAPI struct{ Script }
@@ -41,4 +52,4 @@ func (f FakeAPI) Reach(ctx context.Context, _ APITarget) error { return f.endpoi
 func (f FakeAPI) Authenticate(context.Context, APITarget) error { return f.Auth }
 
 // Authorize returns Script.Authz.
-func (f FakeAPI) Authorize(context.Context, APITarget) error { return f.Authz }
+func (f FakeAPI) Authorize(ctx context.Context, _ APITarget) error { return f.authz(ctx) }
