@@ -265,8 +265,15 @@ func TestResultWriteFailureReported(t *testing.T) {
 		t.Fatal(err)
 	}
 	chmod(t, loaded.Dir, 0o500)
-	close(f.long.gate)
-	_, err = f.client.Events(context.Background(), started.ID, 2, true, func(Event) error { return nil })
+	// The gate opens only once the follower holds the active run: from cursor 1 it receives event
+	// 2 through its subscription. Opened earlier, the run can finish and leave the manager before
+	// the follower arrives, which then replays the run without the result write error.
+	_, err = f.client.Events(context.Background(), started.ID, 1, true, func(e Event) error {
+		if e.ID == 2 {
+			close(f.long.gate)
+		}
+		return nil
+	})
 	if pe := wantCode(t, err, CodeInternal); !strings.Contains(pe.Message, "could not be written") {
 		t.Fatalf("message %q, want the result write failure", pe.Message)
 	}
