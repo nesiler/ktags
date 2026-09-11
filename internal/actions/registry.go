@@ -125,18 +125,10 @@ func (r *Registry) Lookup(id string) (Action, bool) {
 // Every action, read-only or mutating, goes through this one path. Confirmation is the
 // client's step before Execute, using Descriptor.Danger.
 func (r *Registry) Execute(ctx context.Context, id string, req Request, progress Progress) (Result, error) {
-	action, ok := r.byID[id]
-	if !ok {
-		return Result{}, &Error{
-			Action:  id,
-			Problem: "no such action",
-			Hint:    "registered actions: " + strings.Join(r.ids, ", "),
-		}
-	}
-	descriptor := action.Descriptor()
-	if err := validateRequest(descriptor, req); err != nil {
+	if err := r.Validate(id, req); err != nil {
 		return Result{}, err
 	}
+	action := r.byID[id]
 	if err := action.Check(ctx, req); err != nil {
 		return Result{}, fmt.Errorf("action %q precondition failed: %w", id, err)
 	}
@@ -158,6 +150,21 @@ func (r *Registry) Execute(ctx context.Context, id string, req Request, progress
 		}
 	}
 	return result, nil
+}
+
+// Validate checks that id is registered and that req matches its descriptor, without running
+// anything. Execute performs the same check; a caller such as the service uses Validate to
+// refuse a request before it records a run.
+func (r *Registry) Validate(id string, req Request) error {
+	action, ok := r.byID[id]
+	if !ok {
+		return &Error{
+			Action:  id,
+			Problem: "no such action",
+			Hint:    "registered actions: " + strings.Join(r.ids, ", "),
+		}
+	}
+	return validateRequest(action.Descriptor(), req)
 }
 
 func validateRequest(d Descriptor, req Request) error {
