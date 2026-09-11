@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
@@ -66,6 +67,8 @@ type Options struct {
 	// Fleet hands out the cached health, connection and version facts of the customers. Nil
 	// means nothing has been measured: every customer is listed as never measured.
 	Fleet fleet.Source
+	// Logger is the service log. Nil discards the log.
+	Logger *slog.Logger
 }
 
 // Scheduled is one action the service runs at an interval.
@@ -148,6 +151,9 @@ func Listen(ctx context.Context, runtimeDir string, opts Options) (*Server, erro
 		return nil, err
 	}
 	mgr = newManager(opts.Registry, opts.Store, opts.DataRoot, opts.Redact)
+	if opts.Logger != nil {
+		mgr.log = opts.Logger
+	}
 	schedCtx, schedStop := context.WithCancel(context.Background())
 	clock := opts.Clock
 	if clock == nil {

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"os"
 	"sort"
 	"strings"
@@ -31,6 +32,8 @@ type manager struct {
 	store    *run.Store
 	dataRoot string
 	redact   func(string) string
+	// log receives what only the service knows, such as why a result could not be written.
+	log *slog.Logger
 
 	ctx  context.Context
 	stop context.CancelFunc
@@ -57,6 +60,7 @@ func newManager(registry *actions.Registry, store *run.Store, dataRoot string, r
 		store:    store,
 		dataRoot: dataRoot,
 		redact:   redact,
+		log:      slog.New(slog.DiscardHandler),
 		ctx:      ctx,
 		stop:     stop,
 		active:   make(map[string]*activeRun),
@@ -229,6 +233,15 @@ func (m *manager) execute(ctx context.Context, a *activeRun, actionID string, re
 	result, err := m.registry.Execute(ctx, actionID, req, a.rec)
 	status, summary := outcome(ctx, result, err)
 	_, a.finishErr = a.rec.Finish(status, summary)
+	if a.finishErr != nil {
+		// The disk cannot hold the reason, so the log does; status reads the run as incomplete.
+		cause := a.finishErr
+		var re *run.Error
+		if errors.As(cause, &re) && re.Err != nil {
+			cause = re.Err
+		}
+		m.log.Error("the result could not be written", "run", a.rec.Meta().ID, "status", string(status), "error", m.redact(cause.Error()))
+	}
 	m.mu.Lock()
 	delete(m.active, a.rec.Meta().ID)
 	m.mu.Unlock()
@@ -270,7 +283,7 @@ func (m *manager) status(ctx context.Context, id string) (RunInfo, error) {
 	if err != nil {
 		return RunInfo{}, notFound(err)
 	}
-	return runInfo(r), nil
+	return runInfo(m.settle(ctx, r)), nil
 }
 
 func (m *manager) list(ctx context.Context) ([]RunInfo, error) {
@@ -280,9 +293,39 @@ func (m *manager) list(ctx context.Context) ([]RunInfo, error) {
 	}
 	infos := make([]RunInfo, 0, len(runs))
 	for _, r := range runs {
-		infos = append(infos, runInfo(r))
+		infos = append(infos, runInfo(m.settle(ctx, r)))
 	}
 	return infos, nil
+}
+
+// settle turns a run that reads as running but is not active in this service into incomplete:
+// its result was never written, and nothing will write it. A run leaves active only after
+// Finish returned and enters it together with its directory, so a run that is not active has
+// no write pending. The disk is read again after that check: a run that finished between the
+// first read and the check reads with its result.
+func (m *manager) settle(ctx context.Context, r run.Run) run.Run {
+	if r.Status != run.StatusRunning {
+		return r
+	}
+	m.mu.Lock()
+	_, active := m.active[r.Meta.ID]
+	m.mu.Unlock()
+	if active {
+		return r
+	}
+	if again, err := m.store.Load(ctx, r.Meta.ID); err == nil {
+		r = again
+	}
+	if r.Status != run.StatusRunning {
+		return r
+	}
+	problem := fmt.Sprintf("the result could not be written; next: check free space and permissions of %s; see the service log for run %s", r.Dir, r.Meta.ID)
+	if r.Problem != "" {
+		problem += "; " + r.Problem
+	}
+	r.Status = run.StatusIncomplete
+	r.Problem = problem
+	return r
 }
 
 // events sends the events of run id after the cursor. With follow it waits for new events of an
