@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"regexp"
 	"slices"
 	"sort"
@@ -21,24 +22,31 @@ var reservedArgs = []string{"customer", "node", "dry-run", "yes", "json", "no-co
 
 // Registry holds the validated set of actions. It is immutable after NewRegistry.
 type Registry struct {
-	byID map[string]Action
+	byID map[string]entry
 	ids  []string
+}
+
+// entry keeps the descriptor as NewRegistry validated it. Lookups, listings and request checks
+// use this copy, so a descriptor that changes after startup cannot bypass validation.
+type entry struct {
+	action     Action
+	descriptor Descriptor
 }
 
 // NewRegistry validates every action definition and returns the registry. Every problem found
 // is reported, so one start shows all broken definitions.
 func NewRegistry(actions ...Action) (*Registry, error) {
-	registry := &Registry{byID: make(map[string]Action, len(actions))}
+	registry := &Registry{byID: make(map[string]entry, len(actions))}
 	var problems []error
 	for index, action := range actions {
-		if action == nil {
+		if isNil(action) {
 			problems = append(problems, &Error{
 				Problem: fmt.Sprintf("action %d is nil", index),
 				Hint:    "remove the nil entry from the registry list",
 			})
 			continue
 		}
-		descriptor := action.Descriptor()
+		descriptor := cloneDescriptor(action.Descriptor())
 		if errs := validateDescriptor(descriptor); len(errs) > 0 {
 			problems = append(problems, errs...)
 			continue
@@ -51,7 +59,7 @@ func NewRegistry(actions ...Action) (*Registry, error) {
 			})
 			continue
 		}
-		registry.byID[descriptor.ID] = action
+		registry.byID[descriptor.ID] = entry{action: action, descriptor: descriptor}
 		registry.ids = append(registry.ids, descriptor.ID)
 	}
 	if len(problems) > 0 {
@@ -106,19 +114,35 @@ func validateDescriptor(d Descriptor) []error {
 	return problems
 }
 
-// List returns the descriptors of all actions, sorted by ID.
+// isNil reports a nil entry, also a typed nil pointer, whose Descriptor call would panic.
+func isNil(action Action) bool {
+	if action == nil {
+		return true
+	}
+	v := reflect.ValueOf(action)
+	return v.Kind() == reflect.Pointer && v.IsNil()
+}
+
+// cloneDescriptor copies d with its own Args, so neither the action nor a caller shares the
+// registry's slice.
+func cloneDescriptor(d Descriptor) Descriptor {
+	d.Args = slices.Clone(d.Args)
+	return d
+}
+
+// List returns the descriptors of all actions as validated, sorted by ID.
 func (r *Registry) List() []Descriptor {
 	descriptors := make([]Descriptor, 0, len(r.ids))
 	for _, id := range r.ids {
-		descriptors = append(descriptors, r.byID[id].Descriptor())
+		descriptors = append(descriptors, cloneDescriptor(r.byID[id].descriptor))
 	}
 	return descriptors
 }
 
 // Lookup returns the action registered under id.
 func (r *Registry) Lookup(id string) (Action, bool) {
-	action, ok := r.byID[id]
-	return action, ok
+	e, ok := r.byID[id]
+	return e.action, ok
 }
 
 // Execute validates req against the action's descriptor, checks its preconditions and runs it.
@@ -128,7 +152,7 @@ func (r *Registry) Execute(ctx context.Context, id string, req Request, progress
 	if err := r.Validate(id, req); err != nil {
 		return Result{}, err
 	}
-	action := r.byID[id]
+	action := r.byID[id].action
 	if err := action.Check(ctx, req); err != nil {
 		return Result{}, fmt.Errorf("action %q precondition failed: %w", id, err)
 	}
@@ -156,7 +180,7 @@ func (r *Registry) Execute(ctx context.Context, id string, req Request, progress
 // anything. Execute performs the same check; a caller such as the service uses Validate to
 // refuse a request before it records a run.
 func (r *Registry) Validate(id string, req Request) error {
-	action, ok := r.byID[id]
+	e, ok := r.byID[id]
 	if !ok {
 		return &Error{
 			Action:  id,
@@ -164,7 +188,7 @@ func (r *Registry) Validate(id string, req Request) error {
 			Hint:    "registered actions: " + strings.Join(r.ids, ", "),
 		}
 	}
-	return validateRequest(action.Descriptor(), req)
+	return validateRequest(e.descriptor, req)
 }
 
 func validateRequest(d Descriptor, req Request) error {

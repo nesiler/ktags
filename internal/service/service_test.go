@@ -268,7 +268,10 @@ func TestResultWriteFailureReported(t *testing.T) {
 	// The gate opens only once the follower holds the active run: from cursor 1 it receives event
 	// 2 through its subscription. Opened earlier, the run can finish and leave the manager before
 	// the follower arrives, which then replays the run without the result write error.
-	_, err = f.client.Events(context.Background(), started.ID, 1, true, func(e Event) error {
+	// Bounded, so a lost event 2 fails here instead of hanging until the go test timeout.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	_, err = f.client.Events(ctx, started.ID, 1, true, func(e Event) error {
 		if e.ID == 2 {
 			close(f.long.gate)
 		}

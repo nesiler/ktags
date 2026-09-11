@@ -242,19 +242,22 @@ func TestLaunchdRefusals(t *testing.T) {
 			t.Fatalf("Launch: %v, calls %q; want a refusal before launchctl", err, fake.calls)
 		}
 	})
-	t.Run("definition directory open to others", func(t *testing.T) {
-		fake := &fakeLaunchctl{}
-		l, _ := testLaunchd(t, fake)
-		dir := filepath.Dir(l.Definition)
-		if err := os.Mkdir(dir, 0o755); err != nil {
-			t.Fatal(err)
-		}
-		chmod(t, dir, 0o755)
-		err := l.Launch(context.Background())
-		if pe := wantUnavailable(t, err); !strings.Contains(pe.Hint, "chmod 700") || len(fake.calls) != 0 {
-			t.Fatalf("Launch: %v, calls %q; want a chmod hint and no launchctl call", err, fake.calls)
-		}
-	})
+	// Group bits alone and others bits alone are each refused, not only both together.
+	for _, mode := range []os.FileMode{0o755, 0o750, 0o770, 0o705} {
+		t.Run("definition directory mode "+mode.String(), func(t *testing.T) {
+			fake := &fakeLaunchctl{}
+			l, _ := testLaunchd(t, fake)
+			dir := filepath.Dir(l.Definition)
+			if err := os.Mkdir(dir, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			chmod(t, dir, mode)
+			err := l.Launch(context.Background())
+			if pe := wantUnavailable(t, err); !strings.Contains(pe.Hint, "chmod 700") || len(fake.calls) != 0 {
+				t.Fatalf("Launch: %v, calls %q; want a chmod hint and no launchctl call", err, fake.calls)
+			}
+		})
+	}
 	t.Run("malformed environment entry", func(t *testing.T) {
 		fake := &fakeLaunchctl{}
 		l, _ := testLaunchd(t, fake)

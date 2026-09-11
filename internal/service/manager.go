@@ -319,7 +319,9 @@ func (m *manager) settle(ctx context.Context, r run.Run) run.Run {
 	if r.Status != run.StatusRunning {
 		return r
 	}
-	problem := fmt.Sprintf("the result could not be written; next: check free space and permissions of %s; see the service log for run %s", r.Dir, r.Meta.ID)
+	// Not active and still without a result: either its write failed or the service stopped
+	// during the run. Only the service log tells which, so the text names both.
+	problem := fmt.Sprintf("the run has no result: it could not be written, or the service stopped during the run; next: check free space and permissions of %s; see the service log for run %s", r.Dir, r.Meta.ID)
 	if r.Problem != "" {
 		problem += "; " + r.Problem
 	}

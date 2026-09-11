@@ -225,13 +225,23 @@ type step struct {
 // SSH runs ssh.endpoint, ssh.auth and ssh.sudo against t.
 func (r *Runner) SSH(ctx context.Context, t SSHTarget) ([]Result, error) {
 	if err := t.validate(); err != nil {
-		return nil, err
+		return nil, r.refusal(err)
 	}
 	return r.run(ctx, t.String(), t.Customer, t.address(), []step{
 		{"ssh.endpoint", []Kind{KindDNS, KindTCP, KindHostKey}, func(ctx context.Context) error { return r.ssh.Reach(ctx, t) }},
 		{"ssh.auth", []Kind{KindSSHAuth}, func(ctx context.Context) error { return r.ssh.Authenticate(ctx, t) }},
 		{"ssh.sudo", []Kind{KindSudo}, func(ctx context.Context) error { return r.ssh.Sudo(ctx, t) }},
 	}), nil
+}
+
+// refusal masks a target refusal: it quotes inventory names, which pass the redactor like every
+// result field.
+func (r *Runner) refusal(err error) error {
+	var e *Error
+	if !errors.As(err, &e) {
+		return err
+	}
+	return &Error{Problem: r.redact(e.Problem), Next: r.redact(e.Next)}
 }
 
 // Kubernetes runs kube.endpoint, kube.auth and kube.authz against t.
@@ -246,7 +256,7 @@ func (r *Runner) Rancher(ctx context.Context, t APITarget) ([]Result, error) {
 
 func (r *Runner) api(ctx context.Context, prefix string, a API, t APITarget, reach, auth, authz Kind) ([]Result, error) {
 	if err := t.validate(); err != nil {
-		return nil, err
+		return nil, r.refusal(err)
 	}
 	return r.run(ctx, t.String(), t.Customer, t.URL, []step{
 		{prefix + ".endpoint", []Kind{KindDNS, KindTCP, reach}, func(ctx context.Context) error { return a.Reach(ctx, t) }},

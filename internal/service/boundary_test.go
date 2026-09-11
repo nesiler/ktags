@@ -230,8 +230,10 @@ func TestFailedWriteWithoutReplyUnavailable(t *testing.T) {
 	}()
 	c := Client{Socket: sock, connected: func() { <-closed }}
 	_, err = c.Hello(context.Background())
-	if pe := wantCode(t, err, CodeUnavailable); !errors.Is(err, syscall.EPIPE) {
-		t.Fatalf("error %q wraps %v, want the failed write (EPIPE)", pe.Message, errors.Unwrap(err))
+	// A write to a closed peer reports EPIPE on darwin and Linux; other platforms may say
+	// ECONNRESET for the same case. Either one is the failed write.
+	if pe := wantCode(t, err, CodeUnavailable); !errors.Is(err, syscall.EPIPE) && !errors.Is(err, syscall.ECONNRESET) {
+		t.Fatalf("error %q wraps %v, want the failed write (EPIPE or ECONNRESET)", pe.Message, errors.Unwrap(err))
 	}
 }
 
