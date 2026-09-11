@@ -17,4 +17,6 @@
 //     at '&', so `word` is not the flag's value.
 //   - Key names are matched anywhere in a word, so a non-secret key such as `private_key_file`
 //     or `--private-key` (a path) is masked too.
+//   - A key followed by a run of colons and no value (`token:::`) reads `token::[masked]`: the
+//     last colon is taken as the value, because a value made of colons would otherwise leak.
 package mask

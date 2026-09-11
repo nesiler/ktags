@@ -29,9 +29,9 @@ import (
 const (
 	socketName = "service.sock"
 	lockName   = "service.lock"
-	// maxSocketPath is the longest socket path every supported platform accepts: sun_path is
+	// MaxSocketPath is the longest socket path every supported platform accepts: sun_path is
 	// 104 bytes on macOS including the terminating NUL (108 on Linux).
-	maxSocketPath = 103
+	MaxSocketPath = 103
 )
 
 // sysCalls are the system calls Listen makes; tests replace them to fail one step at a time.
@@ -124,8 +124,8 @@ func Listen(ctx context.Context, runtimeDir string, opts Options) (*Server, erro
 		return nil, &Error{Code: CodeInternal, Message: "the runtime and data roots must be absolute paths", Hint: "resolve the roots with the paths package"}
 	}
 	socket := SocketPath(runtimeDir)
-	if len(socket) > maxSocketPath {
-		return nil, &Error{Code: CodeUnavailable, Message: fmt.Sprintf("the socket path %q is %d bytes; the limit is %d", socket, len(socket), maxSocketPath), Hint: "set KTAGS_RUNTIME_DIR to a shorter absolute path"}
+	if len(socket) > MaxSocketPath {
+		return nil, &Error{Code: CodeUnavailable, Message: fmt.Sprintf("the socket path %q is %d bytes; the limit is %d", socket, len(socket), MaxSocketPath), Hint: "set KTAGS_RUNTIME_DIR to a shorter absolute path"}
 	}
 	info, err := os.Stat(runtimeDir)
 	if err != nil {

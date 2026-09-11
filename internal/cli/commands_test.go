@@ -377,6 +377,8 @@ func TestConfirmation(t *testing.T) {
 		{"--yes confirms outside prod", call{}, upgrade("beta", "--yes"), 0, true, ""},
 		{"answered y", call{stdin: "y\n", terminal: true}, upgrade("beta"), 0, true, `run "cluster upgrade" on beta (staging)` + "\nContinue? [y/N]"},
 		{"answered yes", call{stdin: "yes\n", terminal: true}, upgrade("beta"), 0, true, ""},
+		{"answered Y", call{stdin: "Y\n", terminal: true}, upgrade("beta"), 0, true, ""},
+		{"answered YES", call{stdin: "YES\n", terminal: true}, upgrade("beta"), 0, true, ""},
 		{"answered no", call{stdin: "n\n", terminal: true}, upgrade("beta"), 2, false, "not confirmed"},
 		{"answered a word starting with y", call{stdin: "yep\n", terminal: true}, upgrade("beta"), 2, false, "not confirmed"},
 		{"no answer", call{terminal: true}, upgrade("beta"), 2, false, "not confirmed"},

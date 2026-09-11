@@ -76,6 +76,7 @@ var scenarios = []scenario{
 	{name: "ssh auth", ssh: Script{Auth: fail(KindSSHAuth)}, check: "ssh.auth", kind: KindSSHAuth},
 	{name: "sudo", ssh: Script{Authz: fail(KindSudo)}, check: "ssh.sudo", kind: KindSudo},
 	{name: "kube dns", kube: Script{Endpoint: fail(KindDNS)}, check: "kube.endpoint", kind: KindDNS},
+	{name: "kube tcp", kube: Script{Endpoint: fail(KindTCP)}, check: "kube.endpoint", kind: KindTCP},
 	{name: "kube api", kube: Script{Endpoint: fail(KindKubeAPI)}, check: "kube.endpoint", kind: KindKubeAPI},
 	{name: "kube auth", kube: Script{Auth: fail(KindKubeAuth)}, check: "kube.auth", kind: KindKubeAuth},
 	{name: "kube forbidden", kube: Script{Authz: fail(KindKubeForbidden)}, check: "kube.authz", kind: KindKubeForbidden},

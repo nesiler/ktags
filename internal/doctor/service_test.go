@@ -126,6 +126,8 @@ func TestSocket(t *testing.T) {
 		{"another protocol answers", stopped, mismatchErr, false, StatusOK, "", "a ktags service answers on /k/runtime/service.sock"},
 		{"silent service", stopped, silentErr, false, StatusFail, silentErr.Hint, silentErr.Message},
 		{"error without a hint", stopped, errors.New("boom\n  next: x"), false, StatusFail, "ktags service start", "boom"},
+		{"socket path over the limit", longSocket(104), nil, false, StatusFail, "set KTAGS_RUNTIME_DIR to a shorter absolute path", "is 104 bytes; the limit is 103"},
+		{"socket path at the limit", longSocket(103), nil, false, StatusFail, "ktags service start", "no ktags service answers"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

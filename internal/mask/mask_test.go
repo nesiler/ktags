@@ -111,6 +111,10 @@ func TestMaskReplacesEachPattern(t *testing.T) {
 		{"password bare anchor", "password: & SEC15", "password: [masked] [masked]"},
 		{"password triple colon", "password::: SEC20", "password::: [masked]"},
 		{"token triple colon glued", "token:::abc", "token:::[masked]"},
+		// Known limit (doc.go): with no value after a colon run, the last colon is masked.
+		{"token colon run without value", "token:::", "token::[masked]"},
+		{"kube config client key camel case", "clientKeyData: Zm9vY2FtZWw=", "clientKeyData: [masked]"},
+		{"kube config client key snake case", "client_key_data: Zm9vc25ha2U=", "client_key_data: [masked]"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

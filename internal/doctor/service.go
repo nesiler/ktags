@@ -55,6 +55,9 @@ func checkSocket(ctx context.Context, env Env) []Result {
 	st, err := env.ServiceStatus(ctx)
 	var pe *service.Error
 	switch {
+	case len(st.Socket) > service.MaxSocketPath:
+		// No service can listen there, so starting one would never turn this row green.
+		return []Result{{Status: StatusFail, Evidence: fmt.Sprintf("the socket path %s is %d bytes; the limit is %d", st.Socket, len(st.Socket), service.MaxSocketPath), Fix: "set KTAGS_RUNTIME_DIR to a shorter absolute path"}}
 	case errors.As(err, &pe) && pe.Code == service.CodeProtocolMismatch:
 		return []Result{{Status: StatusOK, Evidence: "a ktags service answers on " + st.Socket + " (its protocol is the next check)"}}
 	case err != nil:

@@ -42,7 +42,7 @@ func failWrite(f *fixture) (string, string) {
 // wantIncomplete checks the state the decision on #48 prescribes for a run without a result.
 func wantIncomplete(t *testing.T, what string, info RunInfo, id, dir string) {
 	t.Helper()
-	want := "the result could not be written; next: check free space and permissions of " + dir + "; see the service log for run " + id
+	want := "the run has no result: it could not be written, or the service stopped during the run; next: check free space and permissions of " + dir + "; see the service log for run " + id
 	if info.ID != id || info.Status != string(run.StatusIncomplete) || info.Result != nil || info.Problem != want {
 		t.Fatalf("%s: %+v\nwant status incomplete, no result, problem %q", what, info, want)
 	}
@@ -206,7 +206,7 @@ func TestSettleReloadsAFinishedRun(t *testing.T) {
 	// A run that vanished between the reads keeps what was read, and that was a missing result.
 	gone := run.Run{Dir: "/state/runs/acme/" + missingRun, Meta: run.Meta{ID: missingRun}, Status: run.StatusRunning, Problem: "events.jsonl ends in a partial line after event 2; it is ignored"}
 	got := m.settle(ctx, gone)
-	want := "the result could not be written; next: check free space and permissions of " + gone.Dir + "; see the service log for run " + missingRun + "; " + gone.Problem
+	want := "the run has no result: it could not be written, or the service stopped during the run; next: check free space and permissions of " + gone.Dir + "; see the service log for run " + missingRun + "; " + gone.Problem
 	if got.Status != run.StatusIncomplete || got.Problem != want {
 		t.Fatalf("settle of a vanished run = %+v, want incomplete with problem %q", got, want)
 	}

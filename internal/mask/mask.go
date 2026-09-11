@@ -18,12 +18,12 @@ type pattern struct {
 // Building blocks of the token/password patterns. Every value alternative is one capture group.
 const (
 	// sensitiveKey is a key or flag name containing token, password, passwd, api_key (apikey,
-	// api-key), private_key (private-key) or the kube config client-key-data, e.g. rke2_token,
-	// --password, apiKey. client-certificate-data and certificate-authority-data hold public
-	// certificates and stay readable; secret and credential are left out because they name
-	// non-secret things (secret_name, secretRef, kind: Secret). Every pattern using it is
-	// case-insensitive.
-	sensitiveKey = `[a-z0-9_.-]*(?:token|password|passwd|api[_-]?key|private[_-]?key|client-key-data)[a-z0-9_.-]*`
+	// api-key), private_key (private-key) or the kube config client-key-data (also clientKeyData
+	// or client_key_data, as a tool may re-serialise it), e.g. rke2_token, --password, apiKey.
+	// client-certificate-data and certificate-authority-data hold public certificates and stay
+	// readable; secret and credential are left out because they name non-secret things
+	// (secret_name, secretRef, kind: Secret). Every pattern using it is case-insensitive.
+	sensitiveKey = `[a-z0-9_.-]*(?:token|password|passwd|api[_-]?key|private[_-]?key|client[_-]?key[_-]?data)[a-z0-9_.-]*`
 	// quotedValue: a closed double- or single-quoted value ('' is YAML's escaped quote); a quote
 	// that never closes (a truncated line) masks to the end of the line.
 	quotedValue = `"((?:[^"\\]|\\.)*)"|'((?:[^']|'')*)'|"([^\n]*)|'([^\n]*)`

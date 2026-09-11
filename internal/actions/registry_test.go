@@ -174,6 +174,12 @@ func TestNewRegistryRejectsInvalidDefinitions(t *testing.T) {
 			hint:    "remove the nil entry",
 		},
 		{
+			name:    "typed nil action",
+			list:    []actions.Action{readOnlyFake(), (*fakeAction)(nil)},
+			problem: "action 1 is nil",
+			hint:    "remove the nil entry",
+		},
+		{
 			name:     "invalid id",
 			list:     []actions.Action{withDescriptor(func(d *actions.Descriptor) { d.ID = "Node_Drain" })},
 			problem:  "invalid ID",

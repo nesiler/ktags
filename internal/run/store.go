@@ -201,7 +201,7 @@ func (s *Store) List(ctx context.Context) ([]Run, error) {
 			return nil, &Error{Run: group.Name(), Problem: "cannot list the runs directory", Next: "check the permissions of the state root", Err: err}
 		}
 		for _, entry := range entries {
-			if !entry.IsDir() || !runIDPattern.MatchString(entry.Name()) {
+			if !isRun(entry.Name(), entry.IsDir()) {
 				continue
 			}
 			if err := ctx.Err(); err != nil {
@@ -264,8 +264,12 @@ func (s *Store) find(id string) (string, error) {
 	}
 	var matches []string
 	for _, entry := range entries {
+		// Only a directory holds runs, as in List; a symbolic link below the root is not followed.
+		if !entry.IsDir() {
+			continue
+		}
 		dir := filepath.Join(s.root, entry.Name(), id)
-		if _, err := os.Lstat(dir); err == nil {
+		if info, err := os.Lstat(dir); err == nil && isRun(info.Name(), info.IsDir()) {
 			matches = append(matches, dir)
 		}
 	}
@@ -277,6 +281,12 @@ func (s *Store) find(id string) (string, error) {
 	default:
 		return "", &Error{Run: id, Problem: "the run ID exists below more than one customer", Next: "inspect " + s.root + " and remove the copied run directory"}
 	}
+}
+
+// isRun is the one rule for what counts as a run in a customer directory, for List and find
+// alike: a directory, not a file or a symbolic link, named like a run ID.
+func isRun(name string, dir bool) bool {
+	return dir && runIDPattern.MatchString(name)
 }
 
 // readRun reconstructs one run directory. It never fails: what cannot be read becomes the
