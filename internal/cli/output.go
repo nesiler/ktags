@@ -17,6 +17,8 @@ const (
 	exitUsage   = 1
 	exitRefused = 2
 	exitFailed  = 3
+	// exitCheckFailed: a check ran and is red.
+	exitCheckFailed = 4
 )
 
 // schema names the version of every --json document. A change that breaks a reader of a

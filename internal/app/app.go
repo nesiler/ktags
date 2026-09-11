@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	goruntime "runtime"
@@ -20,6 +21,7 @@ import (
 	"github.com/nesiler/ktags/internal/cli"
 	"github.com/nesiler/ktags/internal/core/domain"
 	coreruntime "github.com/nesiler/ktags/internal/core/runtime"
+	"github.com/nesiler/ktags/internal/doctor"
 	"github.com/nesiler/ktags/internal/launchd"
 	"github.com/nesiler/ktags/internal/mask"
 	"github.com/nesiler/ktags/internal/paths"
@@ -62,6 +64,8 @@ type deps struct {
 	interrupt func(context.Context) (context.Context, context.CancelFunc)
 	// screen is set when stdin and stdout are terminals: `ktags` alone then opens the TUI.
 	screen bool
+	// lookPath finds executables for doctor; nil means exec.LookPath.
+	lookPath func(file string) (string, error)
 	// tui shows the TUI; nil means tui.Run.
 	tui func(ctx context.Context, opts tui.Options, out io.Writer) error
 }
@@ -134,6 +138,34 @@ func (a appRuntime) Service() (cli.ServiceControl, error) {
 		return nil, err
 	}
 	return serviceControl{roots: roots, build: a.build, deps: a.deps}, nil
+}
+
+// Doctor runs the doctor checks on the resolved roots. It asks the service for its status and
+// nothing else, so it never starts the service or creates a root.
+func (a appRuntime) Doctor(ctx context.Context) (doctor.Report, error) {
+	roots, err := paths.Resolve(a.deps.env)
+	if err != nil {
+		return doctor.Report{}, err
+	}
+	control := serviceControl{roots: roots, build: a.build, deps: a.deps}
+	env := doctor.Env{
+		Roots:         roots,
+		GOOS:          goruntime.GOOS,
+		GOARCH:        goruntime.GOARCH,
+		UID:           os.Getuid(),
+		LookPath:      a.deps.lookPath,
+		ServiceStatus: control.Status,
+	}
+	if env.LookPath == nil {
+		env.LookPath = exec.LookPath
+	}
+	switch launcher := a.deps.launcher(roots).(type) {
+	case launchd.Agent:
+		env.AgentDefinition = launcher.Definition
+	case service.NoLauncher:
+		env.Foreground = true
+	}
+	return doctor.Run(ctx, env), nil
 }
 
 type serviceControl struct {
