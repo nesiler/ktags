@@ -24,6 +24,7 @@ import (
 	"github.com/nesiler/ktags/internal/core/fleet"
 	"github.com/nesiler/ktags/internal/core/schedule"
 	"github.com/nesiler/ktags/internal/run"
+	"github.com/nesiler/ktags/internal/shell"
 )
 
 const (
@@ -132,7 +133,7 @@ func Listen(ctx context.Context, runtimeDir string, opts Options) (*Server, erro
 		return nil, &Error{Code: CodeUnavailable, Message: "cannot inspect the runtime root " + runtimeDir, Hint: "create it with mode 0700, or set KTAGS_RUNTIME_DIR", err: err}
 	}
 	if !info.IsDir() || info.Mode().Perm()&0o077 != 0 {
-		return nil, &Error{Code: CodeUnavailable, Message: fmt.Sprintf("the runtime root %q must be a directory only its owner can enter (mode %04o)", runtimeDir, info.Mode().Perm()), Hint: fmt.Sprintf("chmod 700 %q", runtimeDir)}
+		return nil, &Error{Code: CodeUnavailable, Message: fmt.Sprintf("the runtime root %q must be a directory only its owner can enter (mode %04o)", runtimeDir, info.Mode().Perm()), Hint: "chmod 700 " + shell.Quote(runtimeDir)}
 	}
 	// The schedule is checked before the lock, so a bad entry never takes over the socket.
 	var mgr *manager
