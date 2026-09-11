@@ -34,6 +34,9 @@ their results with `"censored"`. A test proves the mask on each pattern.
   (age recipients from the operator roster); a store with fewer than two recipients is a doctor
   warning. The private identity lives in the operator's config dir with `0600` (or is a
   hardware-backed plugin identity); ktags never copies an identity anywhere.
+- The **operator roster** is the one list of operators: each operator's name, SSH public key (§3)
+  and age recipient. It lives in the config dir (`development.md §2`) and is exported with the
+  customer (`ansible.md §7`). Older text calls it the team file.
 - Decrypted values live in memory for the duration of the run. If Ansible needs them, they are
   passed as an extra-vars file read from a pipe inherited by the child (ADR-0004), which leaves
   no plain-text file behind. Never `-e key=value`, never `$ENV`.
@@ -55,9 +58,9 @@ their results with `"censored"`. A test proves the mask on each pattern.
   access playbook) and pins both the bootstrap address and the operational address.
 - Jump hosts are verified against the same `known_hosts`; the inner and outer hop both use the
   customer file (ProxyCommand with explicit options, not ProxyJump, so the options reach both hops).
-- Each operator has one SSH key (ed25519) in the team file; nodes get an `ops` user with the team's
-  keys written exclusively (a key removed from the team file disappears from every node on the
-  next access run). Password login is not touched; sudo is NOPASSWD for that user only.
+- Each operator has one SSH key (ed25519) in the operator roster (§2); nodes get an `ops` user with
+  the roster's keys written exclusively (a key removed from the roster disappears from every node
+  on the next access run). Password login is not touched; sudo is NOPASSWD for that user only.
 - Bootstrap credentials (customer-provided password or key) are used once, never stored; a
   password is read from a masked prompt, never from a flag.
 - ktags's own SSH client (probes, k9s bridge tunnel) uses the same `known_hosts` and the same
@@ -102,13 +105,13 @@ their results with `"censored"`. A test proves the mask on each pattern.
 
 ## 7. Leavers and rotation
 
-- Removing an operator from the team file and running access on every customer they held removes
+- Removing an operator from the operator roster and running access on every customer they held removes
   their SSH key from all nodes. The same action lists what else must be rotated because the leaver
   could have read it: RKE2 join token, Rancher admin password and API tokens, S3 backup
   credentials, Tailscale auth keys — each with the command that rotates it.
 - Secrets stores are re-encrypted to the remaining recipients as part of the same action.
-- A `doctor` check warns when a team member's key is present on a node but absent from the team
-  file, or when a secrets store has a recipient that is not a current member.
+- A `doctor` check warns when an operator's key is present on a node but absent from the roster,
+  or when a secrets store has a recipient that is not in the roster.
 
 ## 8. Agents and the repository
 
