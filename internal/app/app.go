@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -190,6 +191,8 @@ func (c serviceControl) Run(ctx context.Context, stdout io.Writer) error {
 		DataRoot: c.roots.Data.Path,
 		Build:    c.build,
 		Redact:   mask.Mask,
+		// launchd writes the service's stdout to the service log.
+		Logger: slog.New(slog.NewTextHandler(stdout, nil)),
 	})
 	if err != nil {
 		return err

@@ -13,6 +13,8 @@
 // {"protocol":N,"error":{"code","message","hint"}} is frozen across versions so that any client
 // can read it. run.events streams "event" messages and ends with one "run" message holding the
 // final state. service.stop is refused while runs are active unless it asks to cancel them.
+// A run without a result that is not active in the service is reported incomplete: its result
+// could not be written, and the service log holds the write error.
 //
 // Lifecycle: start is idempotent, status reports PID, protocol and socket, and stop goes through
 // service.stop. A Launcher starts the service process; on macOS that is the launchd package, a
