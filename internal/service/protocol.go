@@ -28,6 +28,8 @@ const (
 	OpStatus    = "run.status"
 	OpRuns      = "run.list"
 	OpEvents    = "run.events"
+	// OpFleet lists the cached fleet state; it measures nothing.
+	OpFleet = "fleet.list"
 	// OpStop asks the service to stop. It is refused while runs are active unless the request
 	// sets cancel_runs; the reply lists the runs that were cancelled.
 	OpStop = "service.stop"
@@ -100,6 +102,63 @@ type Response struct {
 	Run       *RunInfo       `json:"run,omitempty"`
 	Runs      []RunInfo      `json:"runs,omitempty"`
 	Event     *Event         `json:"event,omitempty"`
+	Fleet     *FleetInfo     `json:"fleet,omitempty"`
+}
+
+// FleetInfo is the fleet summary: every customer of the inventory in attention order (most
+// urgent first, then by customer), evaluated at Now on the service clock.
+type FleetInfo struct {
+	Now       time.Time    `json:"now"`
+	Customers []FleetEntry `json:"customers"`
+}
+
+// FleetEntry is one customer of the fleet summary. State is the attention state computed in
+// core/fleet; the other fields are the facts it was computed from.
+type FleetEntry struct {
+	ID          string `json:"id"`
+	Name        string `json:"name,omitempty"`
+	Environment string `json:"environment,omitempty"`
+	Cluster     string `json:"cluster,omitempty"`
+	// Problem is set when the inventory record is refused.
+	Problem    string         `json:"problem,omitempty"`
+	State      string         `json:"state"`
+	Connection ConnectionInfo `json:"connection"`
+	Health     string         `json:"health"`
+	// MeasuredAt is absent when the customer has never been measured.
+	MeasuredAt      *time.Time `json:"measured_at,omitempty"`
+	Trigger         string     `json:"trigger,omitempty"`
+	Stale           bool       `json:"stale"`
+	IntervalSeconds int64      `json:"interval_seconds"`
+	// Missed counts the scheduled health slots that could not run.
+	Missed int `json:"missed"`
+	// Checking is set while a health measurement of the customer is in progress.
+	Checking   bool              `json:"checking"`
+	Versions   map[string]string `json:"versions"`
+	ActiveRuns []ActiveRunInfo   `json:"active_runs"`
+	Checks     []CheckInfo       `json:"checks"`
+}
+
+// ConnectionInfo is the latest connection result of a customer.
+type ConnectionInfo struct {
+	State      string     `json:"state"`
+	Detail     string     `json:"detail,omitempty"`
+	MeasuredAt *time.Time `json:"measured_at,omitempty"`
+}
+
+// ActiveRunInfo names a run that is executing for a customer.
+type ActiveRunInfo struct {
+	ID     string `json:"id"`
+	Action string `json:"action"`
+}
+
+// CheckInfo is the evidence of one health check: what ran, its outcome and the measured fact.
+type CheckInfo struct {
+	Check      string    `json:"check"`
+	Severity   string    `json:"severity"`
+	Status     string    `json:"status"`
+	Detail     string    `json:"detail,omitempty"`
+	MeasuredAt time.Time `json:"measured_at"`
+	DurationMS int64     `json:"duration_ms"`
 }
 
 // Hello identifies the running service.

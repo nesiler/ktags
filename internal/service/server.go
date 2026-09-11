@@ -20,6 +20,7 @@ import (
 
 	"github.com/nesiler/ktags/internal/actions"
 	"github.com/nesiler/ktags/internal/core/domain"
+	"github.com/nesiler/ktags/internal/core/fleet"
 	"github.com/nesiler/ktags/internal/core/schedule"
 	"github.com/nesiler/ktags/internal/run"
 )
@@ -60,8 +61,11 @@ type Options struct {
 	// Schedule lists the actions the service runs at an interval (ADR-0001). Every slot that
 	// runs is an ordinary run; a slot missed while the laptop slept creates no run.
 	Schedule []Scheduled
-	// Clock drives the schedule. Defaults to schedule.System().
+	// Clock drives the schedule and stamps the fleet summary. Defaults to schedule.System().
 	Clock schedule.Clock
+	// Fleet hands out the cached health, connection and version facts of the customers. Nil
+	// means nothing has been measured: every customer is listed as never measured.
+	Fleet fleet.Source
 }
 
 // Scheduled is one action the service runs at an interval.
@@ -81,6 +85,8 @@ type Server struct {
 	listener *net.UnixListener
 	lock     *os.File
 	sched    *schedule.Scheduler
+	clock    schedule.Clock
+	fleet    fleet.Source
 	// schedStop ends the schedule; stopReq is closed once a client's service.stop is done.
 	schedStop context.CancelFunc
 	stopReq   chan struct{}
@@ -143,6 +149,10 @@ func Listen(ctx context.Context, runtimeDir string, opts Options) (*Server, erro
 	}
 	mgr = newManager(opts.Registry, opts.Store, opts.DataRoot, opts.Redact)
 	schedCtx, schedStop := context.WithCancel(context.Background())
+	clock := opts.Clock
+	if clock == nil {
+		clock = schedule.System()
+	}
 	srv := &Server{
 		build:     opts.Build,
 		redact:    opts.Redact,
@@ -150,6 +160,8 @@ func Listen(ctx context.Context, runtimeDir string, opts Options) (*Server, erro
 		listener:  listener,
 		lock:      lock,
 		sched:     sched,
+		clock:     clock,
+		fleet:     opts.Fleet,
 		schedStop: schedStop,
 		stopReq:   make(chan struct{}),
 		uid:       os.Getuid(),
@@ -408,6 +420,12 @@ func (s *Server) dispatch(ctx context.Context, req Request, send func(Response) 
 			return err
 		}
 		return send(Response{Customers: customers})
+	case OpFleet:
+		info, err := m.fleet(ctx, s.fleet, s.clock.Now())
+		if err != nil {
+			return err
+		}
+		return send(Response{Fleet: &info})
 	case OpActions:
 		return send(Response{Actions: m.actionList()})
 	case OpStart:
@@ -443,7 +461,7 @@ func (s *Server) dispatch(ctx context.Context, req Request, send func(Response) 
 		}
 		return send(Response{Run: &info})
 	default:
-		return &Error{Code: CodeBadRequest, Message: fmt.Sprintf("unknown operation %q", req.Op), Hint: "operations: " + strings.Join([]string{OpHello, OpInventory, OpActions, OpStart, OpCancel, OpStatus, OpRuns, OpEvents, OpStop}, ", ")}
+		return &Error{Code: CodeBadRequest, Message: fmt.Sprintf("unknown operation %q", req.Op), Hint: "operations: " + strings.Join([]string{OpHello, OpInventory, OpFleet, OpActions, OpStart, OpCancel, OpStatus, OpRuns, OpEvents, OpStop}, ", ")}
 	}
 }
 
