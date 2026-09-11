@@ -370,6 +370,8 @@ func TestPaletteEdges(t *testing.T) {
 	d.key(":")
 	d.typeText("fake check del")
 	d.key("enter")
+	// Each started run is a command on its own goroutine; wait for the first before the second.
+	d.until("fake check started", func(Model) bool { return len(f.snapshot().started) == 1 })
 	d.key(":")
 	d.typeText("node drain delta srv-1 --reason upgrade")
 	d.key("enter", "y")

@@ -870,6 +870,69 @@ func TestEscDetachesAndReopenResumes(t *testing.T) {
 // Ctrl-C in the run view asks "Cancel run?" through the confirmation levels: a prod run and a
 // run of a customer that left the inventory need the typed name; staging and global ask
 // [y/N]. A finished run has nothing to cancel.
+// A refresh stops at the first failing call: a later call that succeeds must not hide the
+// error, so a protocol mismatch from any call drops the data.
+func TestRefreshStopsAtTheFirstError(t *testing.T) {
+	for _, call := range []string{"hello", "fleet", "customers", "actions"} {
+		f := newFake()
+		f.fail = map[string]error{call: &service.Error{Code: service.CodeProtocolMismatch, Message: "protocol 9 is not 1", Hint: "upgrade ktags"}}
+		d := newDriver(t, f)
+		d.until("the first refresh", func(m Model) bool { return m.conn != connConnecting })
+		if d.m.conn != connMismatch || d.m.haveData {
+			t.Fatalf("%s fails: conn %d haveData %v, want the mismatch state", call, d.m.conn, d.m.haveData)
+		}
+	}
+}
+
+// A click outside the dialog's buttons does nothing: what is behind a dialog is not reachable.
+func TestDialogSwallowsOtherClicks(t *testing.T) {
+	f := newFake()
+	d := connected(t, f)
+	d.selectCustomer("delta")
+	d.key(":")
+	d.typeText("fake touch delta")
+	d.key("enter")
+	tabBefore, focusBefore := d.m.tab, d.m.focus
+	d.click("tab:2", tea.MouseLeft)
+	d.drain()
+	if d.m.overlay != overlayDialog || d.m.tab != tabBefore || d.m.focus != focusBefore || len(f.snapshot().started) != 0 {
+		t.Fatalf("click behind the dialog: overlay %d tab %d focus %d started %v, want the dialog kept and nothing changed", d.m.overlay, d.m.tab, d.m.focus, f.snapshot().started)
+	}
+}
+
+// Ctrl-C over the palette, the context menu or a dialog quits like q on the fleet screen
+// (docs/guides/ui.md §4); nothing is started or cancelled.
+func TestCtrlCQuitsFromOverlays(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		open func(*driver)
+	}{
+		{"palette", func(d *driver) { d.key(":"); d.typeText("fake touch delta") }},
+		{"menu", func(d *driver) { d.selectCustomer("delta"); d.key("enter") }},
+		{"confirm", func(d *driver) { d.key(":"); d.typeText("fake touch delta"); d.key("enter") }},
+		{"type-name", func(d *driver) { d.key(":"); d.typeText("fake touch mike"); d.key("enter", "m") }},
+		{"error", func(d *driver) { d.key(":"); d.typeText("fake check nobody"); d.key("enter") }},
+	} {
+		f := newFake()
+		d := connected(t, f)
+		c.open(d)
+		if d.m.overlay == overlayNone || d.m.overlay == overlayHelp {
+			t.Fatalf("%s: overlay %d did not open", c.name, d.m.overlay)
+		}
+		d.key("ctrl+c")
+		d.drain()
+		if !d.m.quitting || len(f.snapshot().started) != 0 || len(f.snapshot().cancelled) != 0 {
+			t.Fatalf("%s: Ctrl-C gives quitting %v, started %v, cancelled %v; want a quit and nothing else", c.name, d.m.quitting, f.snapshot().started, f.snapshot().cancelled)
+		}
+	}
+
+	d := connected(t, newFake())
+	d.key("?", "ctrl+c")
+	if d.m.quitting || d.m.overlay != overlayNone {
+		t.Fatalf("Ctrl-C over help: quitting %v overlay %d, want help closed", d.m.quitting, d.m.overlay)
+	}
+}
+
 func TestCtrlCCancelsWithConfirmation(t *testing.T) {
 	cases := []struct {
 		customer string

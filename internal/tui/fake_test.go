@@ -42,8 +42,10 @@ type fakeClient struct {
 	actions   []service.ActionInfo
 	runs      []service.RunInfo
 	// err fails every refresh call; block holds Hello until closed.
-	err       error
-	block     chan struct{}
+	err   error
+	block chan struct{}
+	// fail fails only the named refresh call: hello, fleet, customers or actions.
+	fail      map[string]error
 	startErr  error
 	cancelErr error
 	started   []startCall
@@ -78,24 +80,36 @@ func (f *fakeClient) Hello(ctx context.Context) (service.Hello, error) {
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if err := f.fail["hello"]; err != nil {
+		return service.Hello{}, err
+	}
 	return f.hello, f.err
 }
 
 func (f *fakeClient) Fleet(context.Context) (service.FleetInfo, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if err := f.fail["fleet"]; err != nil {
+		return service.FleetInfo{}, err
+	}
 	return f.fleet, f.err
 }
 
 func (f *fakeClient) Customers(context.Context) ([]service.CustomerInfo, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if err := f.fail["customers"]; err != nil {
+		return nil, err
+	}
 	return slices.Clone(f.customers), f.err
 }
 
 func (f *fakeClient) Actions(context.Context) ([]service.ActionInfo, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if err := f.fail["actions"]; err != nil {
+		return nil, err
+	}
 	return slices.Clone(f.actions), f.err
 }
 

@@ -17,6 +17,11 @@ func (m Model) handleKey(k, text string) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+	// Ctrl-C over the palette, the menu or a dialog is q of the fleet screen (docs/guides/ui.md
+	// §4): the client quits and nothing starts or is cancelled. Help closes on any key.
+	if k == "ctrl+c" && m.overlay != overlayNone && m.overlay != overlayHelp {
+		return m.quit()
+	}
 	switch m.overlay {
 	case overlayHelp:
 		m.overlay = overlayNone
