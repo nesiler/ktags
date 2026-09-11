@@ -54,7 +54,7 @@ func TestRunSurvivesClientDisconnect(t *testing.T) {
 	}
 }
 
-// The event file closes before the result is written; a follower must still end with the result.
+// A follower ends with the final state and the result, run after run.
 func TestFollowEndsWithResult(t *testing.T) {
 	f := newFixture(t, setup{})
 	for i := 0; i < 50; i++ {
@@ -115,6 +115,8 @@ func TestStartRefusesInvalidRequest(t *testing.T) {
 		args   map[string]any
 	}{
 		{"unknown action", "fake nothing", global, nil},
+		// Arguments skip the empty-arguments fast path, so decodeArgs must look up the action.
+		{"unknown action with arguments", "fake nothing", global, map[string]any{"note": "x"}},
 		{"wrong target kind", "fake quick", acme, nil},
 		{"customer target without customer", "fake long", Target{Kind: "customer"}, nil},
 		{"string for an int", "fake long", acme, map[string]any{"count": "three"}},

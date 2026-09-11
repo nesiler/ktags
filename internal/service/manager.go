@@ -238,7 +238,9 @@ func (m *manager) events(ctx context.Context, id string, after uint64, follow bo
 			return RunInfo{}, err
 		}
 	}
-	// The event file closes before the result is written; wait for the result.
+	// Wait for done before reading finishErr: done publishes it. The recorder already writes the
+	// result before a subscriber sees the end of the events, so the wait is also defence in depth
+	// against a change to the recorder's locking.
 	select {
 	case <-a.done:
 	case <-ctx.Done():
