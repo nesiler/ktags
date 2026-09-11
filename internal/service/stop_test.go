@@ -17,6 +17,18 @@ func stopRequested(srv *Server) bool {
 	}
 }
 
+// waitStopRequested reports whether the stop request arrives within a deadline. The service
+// requests the stop only after its reply is written, so a client holding the reply may still be
+// ahead of it.
+func waitStopRequested(srv *Server) bool {
+	select {
+	case <-srv.StopRequested():
+		return true
+	case <-time.After(10 * time.Second):
+		return false
+	}
+}
+
 // #12-K1: a stop without --cancel-runs is refused while a run is active; the run and the
 // service go on as if nothing happened.
 func TestStopRefusedWhileRunActive(t *testing.T) {
@@ -61,7 +73,7 @@ func TestStopCancelsRunsWhenAsked(t *testing.T) {
 		runs[0].Result.Summary != errStopRun.Error() {
 		t.Fatalf("stop reply %+v, want run %s cancelled with %q", runs, info.ID, errStopRun)
 	}
-	if !stopRequested(f.srv) {
+	if !waitStopRequested(f.srv) {
 		t.Fatal("the stop did not ask the service to stop")
 	}
 	_, err = f.client.Start(ctx, "fake quick", global, nil)
@@ -78,7 +90,7 @@ func TestStopWithoutRuns(t *testing.T) {
 	if err != nil || len(runs) != 0 {
 		t.Fatalf("Stop: %+v, %v; want no runs and no error", runs, err)
 	}
-	if !stopRequested(f.srv) {
+	if !waitStopRequested(f.srv) {
 		t.Fatal("the stop did not ask the service to stop")
 	}
 }

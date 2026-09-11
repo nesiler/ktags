@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -198,6 +199,40 @@ func TestPeerCredentialFailureRefused(t *testing.T) {
 	}})
 	_, err := f.client.Hello(context.Background())
 	wantCode(t, err, CodeForbidden)
+}
+
+// #56: the owner check refuses before it reads a byte. When the service has answered and closed
+// before the client writes, the write fails, and the client still reports the refusal.
+func TestRefusalReadAfterServerClosedBeforeWrite(t *testing.T) {
+	f := newFixture(t, setup{server: func(s *Server) {
+		s.peerUID = func(*net.UnixConn) (int, error) { return os.Getuid(), errors.New("no credentials") }
+	}})
+	c := f.client
+	c.connected = func() { <-f.conns } // the service has written its refusal and closed
+	_, err := c.Hello(context.Background())
+	wantCode(t, err, CodeForbidden)
+}
+
+// A failed write with no reply behind it is reported as unavailable, carrying the write error.
+func TestFailedWriteWithoutReplyUnavailable(t *testing.T) {
+	sock := filepath.Join(shortDir(t), "w.sock")
+	l, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = l.Close() }()
+	closed := make(chan struct{})
+	go func() {
+		defer close(closed)
+		if conn, err := l.AcceptUnix(); err == nil {
+			_ = conn.Close()
+		}
+	}()
+	c := Client{Socket: sock, connected: func() { <-closed }}
+	_, err = c.Hello(context.Background())
+	if pe := wantCode(t, err, CodeUnavailable); !errors.Is(err, syscall.EPIPE) {
+		t.Fatalf("error %q wraps %v, want the failed write (EPIPE)", pe.Message, errors.Unwrap(err))
+	}
 }
 
 // The real credential call reports this process's uid for a connection from this process.
