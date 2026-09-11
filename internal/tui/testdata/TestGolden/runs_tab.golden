@@ -1,0 +1,30 @@
+ ktags test │ ● service connected │ mike (prod) │ ▶ 1 run active │ mouse on                         
+┌─ Customers (15) ──────────────────────────┐┏━ mike (prod) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+│  ! invalid     zulu             -         │┃ Nodes   Health  [Runs]                              ┃
+│› ✗ fail        mike             prod      │┃                                                     ┃
+│  ✗ fail        oscar            staging   │┃  RESULT       ACTION           STARTED   DURATION   ┃
+│  ✗ unreachable golf             staging ⠋ │┃› ✓ succeeded  fake check       20m ago   1m         ┃
+│  ○ stale · 5h  kilo             prod      │┃                                                     ┃
+│  ○ missed · 7h lima             test      │┃                                                     ┃
+│  ○ stale · 2d  papa             prod      │┃                                                     ┃
+│  ○ never       hotel            staging   │┃                                                     ┃
+│  ○ never       india            test      │┃                                                     ┃
+│  ⚠ warn        echo             prod      │┃                                                     ┃
+│  ⚠ warn        foxtrot          staging   │┃                                                     ┃
+│  ✓ ok          alpha            test    ⠋ │┃                                                     ┃
+│  ✓ ok          bravo            prod    ⠋ │┃                                                     ┃
+│  ✓ ok          charlie          prod      │┃                                                     ┃
+│  ✓ ok          delta            staging   │┃                                                     ┃
+│                                           │┃                                                     ┃
+│                                           │┃                                                     ┃
+│                                           │┃                                                     ┃
+│                                           │┃                                                     ┃
+│                                           │┃                                                     ┃
+│                                           │┃                                                     ┃
+│                                           │┃                                                     ┃
+│                                           │┃                                                     ┃
+│                                           │┃                                                     ┃
+│                                           │┃                                                     ┃
+└───────────────────────────────────────────┘┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+ : palette  ? help  tab focus  ←→ tabs  enter open run  m mouse  q quit  ▸ fake check  ▸ fake touch…
+                                                                                                    

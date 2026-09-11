@@ -1,0 +1,30 @@
+ ktags test │ ✗ protocol mismatch │ mouse on                                                        
+┏━ protocol mismatch ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃✗ protocol mismatch                                                                               ┃
+┃                                                                                                  ┃
+┃cause  the service speaks ktags protocol 2, this side speaks 1                                    ┃
+┃next   this ktags is older than the running service: upgrade ktags to the build that started the  ┃
+┃       service                                                                                    ┃
+┃                                                                                                  ┃
+┃Enter retries · q quits                                                                           ┃
+┃                                                                                                  ┃
+┃                                                                                                  ┃
+┃                                                                                                  ┃
+┃                                                                                                  ┃
+┃                                                                                                  ┃
+┃                                                                                                  ┃
+┃                                                                                                  ┃
+┃                                                                                                  ┃
+┃                                                                                                  ┃
+┃                                                                                                  ┃
+┃                                                                                                  ┃
+┃                                                                                                  ┃
+┃                                                                                                  ┃
+┃                                                                                                  ┃
+┃                                                                                                  ┃
+┃                                                                                                  ┃
+┃                                                                                                  ┃
+┃                                                                                                  ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+ enter retry  ? help  m mouse  q quit                                                               
+                                                                                                    

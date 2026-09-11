@@ -1,0 +1,30 @@
+ ktags test │ ● service connected │ zulu (-) │ ▶ 1 run active │ mouse on                            
+┏━ Customers (15) ━━━━━━━━━━━━━━━━━━━━━━━━━━┓┌─ zulu (-) ──────────────────────────────────────────┐
+┃› ! invalid     zulu             -         ┃│[Nodes]  Health   Runs                               │
+┃ ┏━ Help ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓ │
+┃ ┃keys                                                                                          ┃t│
+┃ ┃:            palette                ?          help                                           ┃ │
+┃ ┃tab          move focus             ←→         switch tabs (detail)                           ┃ │
+┃ ┃↑↓ pgup/dn   move                   home/end   first/last                                     ┃ │
+┃ ┃enter/space  menu or open run       esc        close / back to the fleet                      ┃ │
+┃ ┃m            toggle mouse           q          quit; runs continue in the service             ┃ │
+┃ ┃ctrl+c       run view: cancel run   elsewhere  same as q                                      ┃ │
+┃ ┃                                                                                              ┃ │
+┃ ┃customer actions                                                                              ┃ │
+┃ ┃  fake check             Fake check                                                           ┃ │
+┃ ┃      ktags action run fake check <customer>                                                  ┃ │
+┃ ┃  fake touch             Fake touch                                                           ┃ │
+┃ ┃      ktags action run fake touch <customer>                                                  ┃ │
+┃ ┃  fake wipe              Fake wipe                                                            ┃ │
+┃ ┃      ktags action run fake wipe <customer>                                                   ┃ │
+┃ ┃node actions                                                                                  ┃ │
+┃ ┃  node drain             Drain a node                                                         ┃ │
+┃ ┃      ktags action run node drain <customer> <node> --reason <string>                         ┃ │
+┃ ┃global actions                                                                                ┃ │
+┃ ┃  fake quick             Fake quick                                                           ┃ │
+┃ ┃      ktags action run fake quick [--count <int>] [--note <string>] [--verbose]               ┃ │
+┃ ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛ │
+┃                                           ┃│                                                     │
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛└─────────────────────────────────────────────────────┘
+ any key close                                                                                      
+                                                                                                    

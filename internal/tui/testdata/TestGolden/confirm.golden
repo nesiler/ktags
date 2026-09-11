@@ -1,0 +1,30 @@
+ ktags test │ ● service connected │ delta (staging) │ ▶ 1 run active │ mouse on                     
+┏━ Customers (15) ━━━━━━━━━━━━━━━━━━━━━━━━━━┓┌─ delta (staging) ───────────────────────────────────┐
+┃  ! invalid     zulu             -         ┃│[Nodes]  Health   Runs                               │
+┃  ✗ fail        mike             prod      ┃│                                                     │
+┃  ✗ fail        oscar            staging   ┃│cluster   delta-1                                    │
+┃  ✗ unreachable golf             staging ⠋ ┃│nodes     3 in the inventory                         │
+┃  ○ stale · 5h  kilo             prod      ┃│                                                     │
+┃  ○ missed · 7h lima             test      ┃│Per-node role, address, state and last contact       │
+┃  ○ stale · 2d  papa             prod      ┃│are not reported by the ktags service yet.           │
+┃  ○ never       hotel            staging   ┃│next: ktags customer list                            │
+┃  ○ never    ┏━ Confirm ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓             │
+┃  ⚠ warn     ┃action       fake touch — Fake touch                                  ┃             │
+┃  ⚠ warn     ┃effect       mutating                                                 ┃             │
+┃  ✓ ok       ┃customer     delta                                                    ┃             │
+┃  ✓ ok       ┃environment  staging                                                  ┃             │
+┃  ✓ ok       ┃                                                                      ┃             │
+┃› ✓ ok       ┃Continue? [y/N]                                                       ┃             │
+┃             ┃                                                                      ┃             │
+┃             ┃y yes   n no                                                          ┃             │
+┃             ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛             │
+┃                                           ┃│                                                     │
+┃                                           ┃│                                                     │
+┃                                           ┃│                                                     │
+┃                                           ┃│                                                     │
+┃                                           ┃│                                                     │
+┃                                           ┃│                                                     │
+┃                                           ┃│                                                     │
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛└─────────────────────────────────────────────────────┘
+                                                                                                    
+                                                                                                    

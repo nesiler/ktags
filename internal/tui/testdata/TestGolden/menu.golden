@@ -1,0 +1,30 @@
+ ktags test │ ● service connected │ delta (staging) │ ▶ 1 run active │ mouse on                     
+┏━ Customers (15) ━━━━━━━━━━━━━━━━━━━━━━━━━━┓┌─ delta (staging) ───────────────────────────────────┐
+┃  ! invalid     zulu             -         ┃│[Nodes]  Health   Runs                               │
+┃  ✗ fail        mike             prod      ┃│                                                     │
+┃  ✗ fail        oscar            staging   ┃│cluster   delta-1                                    │
+┃  ✗ unreachable golf             staging ⠋ ┃│nodes     3 in the inventory                         │
+┃  ○ stale · 5h  kilo             prod      ┃│                                                     │
+┃  ○ missed · 7h lima             test      ┃│Per-node role, address, state and last contact       │
+┃  ○ stale · 2d  papa             prod      ┃│are not reported by the ktags service yet.           │
+┃  ○ never       hotel            staging   ┃│next: ktags customer list                            │
+┃  ○ never       india            test      ┃│                                                     │
+┃  ⚠ warn        echo             prod      ┃│                                                     │
+┃  ⚠ warn        foxtrot          staging   ┃│                                                     │
+┃  ✓ ok          alpha            test    ⠋ ┃│                                                     │
+┃  ✓ ok          bravo            prod    ⠋ ┃│                                                     │
+┃  ✓ ok          charlie          prod      ┃│                                                     │
+┃› ✓ ok          delta            staging   ┃│                                                     │
+┃ ┏━ delta ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓                                           │
+┃ ┃› fake check           Fake check                   ┃                                           │
+┃ ┃  fake touch           Fake touch                   ┃                                           │
+┃ ┃  fake wipe            Fake wipe                    ┃                                           │
+┃ ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛                                           │
+┃                                           ┃│                                                     │
+┃                                           ┃│                                                     │
+┃                                           ┃│                                                     │
+┃                                           ┃│                                                     │
+┃                                           ┃│                                                     │
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛└─────────────────────────────────────────────────────┘
+ enter run  ↑↓ select  esc close                                                                    
+                                                                                                    

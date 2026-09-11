@@ -434,7 +434,7 @@ func TestUnknownInputs(t *testing.T) {
 		{"extra target", []string{"action", "run", "doctor", "extra"}, "invalid_argument", []string{`action "doctor": unexpected argument "extra"`, "next: ktags action run doctor"}},
 		{"unknown target kind", []string{"action", "run", "weird"}, "unsupported_target", []string{`target kind "cluster"`}},
 		{"missing action", []string{"action", "run", "--detach"}, "usage", []string{"missing <action>", "usage: ktags action run"}},
-		{"no command", nil, "usage", []string{"the ktags TUI is not available yet", "usage: ktags <command>"}},
+		{"no command", nil, "usage", []string{"the ktags TUI needs a terminal on stdin and stdout", "usage: ktags <command>"}},
 		{"unknown command", []string{"frob"}, "usage", []string{`unknown command "frob"`, "usage: ktags <command>"}},
 		{"unknown action command", []string{"action", "frob"}, "usage", []string{`unknown action command "frob"`, "usage: ktags action"}},
 		{"missing run", []string{"run", "watch"}, "usage", []string{"missing <run>", "usage: ktags run watch"}},

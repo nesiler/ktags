@@ -28,7 +28,7 @@ func TestMain(m *testing.M) {
 	if os.Getenv(childEnv) == "1" {
 		os.Exit(runWith("test", []string{"service", "run"}, os.Stdout, os.Stderr, deps{
 			env:     paths.OSEnv(),
-			actions: []actions.Action{blockAction{}},
+			actions: []actions.Action{blockAction{}, touchAction{}},
 		}))
 	}
 	os.Exit(m.Run())

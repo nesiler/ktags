@@ -24,6 +24,7 @@ import (
 	"github.com/nesiler/ktags/internal/paths"
 	"github.com/nesiler/ktags/internal/run"
 	"github.com/nesiler/ktags/internal/service"
+	"github.com/nesiler/ktags/internal/tui"
 )
 
 // Run wires the application and executes the command-line adapter.
@@ -33,6 +34,7 @@ func Run(version string, args []string, stdout, stderr io.Writer) int {
 		launcher: platformLauncher(goruntime.GOOS, os.Executable),
 		stdin:    os.Stdin,
 		terminal: isTerminal(os.Stdin),
+		screen:   isTerminal(os.Stdin) && isTerminal(os.Stdout),
 		interrupt: func(ctx context.Context) (context.Context, context.CancelFunc) {
 			return signal.NotifyContext(ctx, os.Interrupt)
 		},
@@ -57,13 +59,48 @@ type deps struct {
 	stdin     io.Reader
 	terminal  bool
 	interrupt func(context.Context) (context.Context, context.CancelFunc)
+	// screen is set when stdin and stdout are terminals: `ktags` alone then opens the TUI.
+	screen bool
+	// tui shows the TUI; nil means tui.Run.
+	tui func(ctx context.Context, opts tui.Options, out io.Writer) error
 }
 
 func runWith(version string, args []string, stdout, stderr io.Writer, d deps) int {
 	build := domain.Build{Name: "ktags", Version: version}
+	if len(args) == 0 && d.screen {
+		return runTUI(build, stdout, stderr, d)
+	}
 	versionAction := actions.NewVersion(build)
 	streams := cli.Streams{In: d.stdin, Out: stdout, Err: stderr, Terminal: d.terminal, Interrupt: d.interrupt}
 	return cli.Run(context.Background(), appRuntime{Runtime: coreruntime.New(versionAction), build: build, deps: d}, args, streams)
+}
+
+// runTUI opens the TUI on the service. Like an interactive CLI command it starts the service
+// when none answers; a failed start opens the TUI in the service unavailable state with the
+// measured cause, where Enter retries.
+func runTUI(build domain.Build, stdout, stderr io.Writer, d deps) int {
+	roots, err := paths.Resolve(d.env)
+	if err != nil {
+		_, _ = fmt.Fprintln(stderr, "ktags:", err)
+		return 1
+	}
+	ctx := context.Background()
+	control := serviceControl{roots: roots, build: build, deps: d}
+	_, _, startErr := control.Start(ctx)
+	show := d.tui
+	if show == nil {
+		show = tui.Run
+	}
+	opts := tui.Options{
+		Client:   service.Client{Socket: service.SocketPath(roots.Runtime.Path)},
+		Version:  build.Version,
+		StartErr: startErr,
+	}
+	if err := show(ctx, opts, stdout); err != nil {
+		_, _ = fmt.Fprintln(stderr, "ktags: the TUI failed:", err)
+		return 1
+	}
+	return 0
 }
 
 // platformLauncher is launchd on macOS. Other systems have no service manager integration yet
