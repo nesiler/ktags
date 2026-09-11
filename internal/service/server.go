@@ -14,11 +14,13 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"golang.org/x/sys/unix"
 
 	"github.com/nesiler/ktags/internal/actions"
 	"github.com/nesiler/ktags/internal/core/domain"
+	"github.com/nesiler/ktags/internal/core/schedule"
 	"github.com/nesiler/ktags/internal/run"
 )
 
@@ -55,6 +57,20 @@ type Options struct {
 	Build    domain.Build
 	// Redact masks secret material in error text sent to clients.
 	Redact func(string) string
+	// Schedule lists the actions the service runs at an interval (ADR-0001). Every slot that
+	// runs is an ordinary run; a slot missed while the laptop slept creates no run.
+	Schedule []Scheduled
+	// Clock drives the schedule. Defaults to schedule.System().
+	Clock schedule.Clock
+}
+
+// Scheduled is one action the service runs at an interval.
+type Scheduled struct {
+	// Name identifies the entry in Server.Schedule.
+	Name     string
+	Action   string
+	Target   Target
+	Interval time.Duration
 }
 
 // Server is the running service: it owns the socket, the instance lock and every run.
@@ -64,6 +80,11 @@ type Server struct {
 	manager  *manager
 	listener *net.UnixListener
 	lock     *os.File
+	sched    *schedule.Scheduler
+	// schedStop ends the schedule; stopReq is closed once a client's service.stop is done.
+	schedStop context.CancelFunc
+	stopReq   chan struct{}
+	stopOnce  sync.Once
 
 	// uid is the service owner; peerUID reads a connection's uid. Tests replace both.
 	uid     int
@@ -104,6 +125,12 @@ func Listen(ctx context.Context, runtimeDir string, opts Options) (*Server, erro
 	if !info.IsDir() || info.Mode().Perm()&0o077 != 0 {
 		return nil, &Error{Code: CodeUnavailable, Message: fmt.Sprintf("the runtime root %q must be a directory only its owner can enter (mode %04o)", runtimeDir, info.Mode().Perm()), Hint: fmt.Sprintf("chmod 700 %q", runtimeDir)}
 	}
+	// The schedule is checked before the lock, so a bad entry never takes over the socket.
+	var mgr *manager
+	sched, err := newSchedule(opts, func() *manager { return mgr })
+	if err != nil {
+		return nil, err
+	}
 
 	lock, err := acquireLock(filepath.Join(runtimeDir, lockName))
 	if err != nil {
@@ -114,16 +141,60 @@ func Listen(ctx context.Context, runtimeDir string, opts Options) (*Server, erro
 		_ = lock.Close()
 		return nil, err
 	}
-	return &Server{
-		build:    opts.Build,
-		redact:   opts.Redact,
-		manager:  newManager(opts.Registry, opts.Store, opts.DataRoot, opts.Redact),
-		listener: listener,
-		lock:     lock,
-		uid:      os.Getuid(),
-		peerUID:  peerUID,
-		conns:    make(map[*net.UnixConn]struct{}),
-	}, nil
+	mgr = newManager(opts.Registry, opts.Store, opts.DataRoot, opts.Redact)
+	schedCtx, schedStop := context.WithCancel(context.Background())
+	srv := &Server{
+		build:     opts.Build,
+		redact:    opts.Redact,
+		manager:   mgr,
+		listener:  listener,
+		lock:      lock,
+		sched:     sched,
+		schedStop: schedStop,
+		stopReq:   make(chan struct{}),
+		uid:       os.Getuid(),
+		peerUID:   peerUID,
+		conns:     make(map[*net.UnixConn]struct{}),
+	}
+	sched.Start(schedCtx)
+	return srv, nil
+}
+
+// newSchedule turns the scheduled actions into schedule jobs. Every entry is validated against
+// the registry, so a schedule never starts an action that run.start would refuse.
+func newSchedule(opts Options, mgr func() *manager) (*schedule.Scheduler, error) {
+	jobs := make([]schedule.Job, 0, len(opts.Schedule))
+	for _, entry := range opts.Schedule {
+		target := entry.Target
+		if err := opts.Registry.Validate(entry.Action, actions.Request{Target: target.actions()}); err != nil {
+			return nil, &Error{Code: CodeInvalid, Message: fmt.Sprintf("scheduled entry %q: %v", entry.Name, err), Hint: "fix the schedule entry, then start the service again", err: err}
+		}
+		req := Request{Action: entry.Action, Target: &target}
+		jobs = append(jobs, schedule.Job{Name: entry.Name, Interval: entry.Interval, Run: func(ctx context.Context) error {
+			return mgr().runScheduled(ctx, req)
+		}})
+	}
+	clock := opts.Clock
+	if clock == nil {
+		clock = schedule.System()
+	}
+	sched, err := schedule.New(clock, jobs, schedule.Options{})
+	if err != nil {
+		return nil, &Error{Code: CodeInvalid, Message: err.Error(), Hint: "fix the schedule, then start the service again", err: err}
+	}
+	return sched, nil
+}
+
+// Schedule returns the state of every scheduled action: next slot, runs, missed slots and
+// whether its latest result is stale.
+func (s *Server) Schedule() []schedule.State {
+	return s.sched.States()
+}
+
+// StopRequested is closed once a client's service.stop has been carried out: new runs are
+// refused and no run is active. The owner of the Server then calls Close.
+func (s *Server) StopRequested() <-chan struct{} {
+	return s.stopReq
 }
 
 // acquireLock takes an exclusive, non-blocking flock on path and writes the service PID into it.
@@ -211,12 +282,14 @@ func (s *Server) isClosed() bool {
 	return s.closed
 }
 
-// Close stops accepting, disconnects every client, cancels the active runs, waits until each
-// has recorded its result and releases the instance lock. Stopping with active work as a
-// deliberate operator step belongs to the lifecycle commands (#12).
+// Close stops the schedule and accepting, disconnects every client, cancels the active runs,
+// waits until each has recorded its result and releases the instance lock. An operator's stop
+// goes through service.stop first, which refuses while runs are active; Close is the signal
+// path (SIGTERM, logout).
 func (s *Server) Close() error {
 	var err error
 	s.once.Do(func() {
+		s.schedStop()
 		s.mu.Lock()
 		s.closed = true
 		for conn := range s.conns {
@@ -224,6 +297,7 @@ func (s *Server) Close() error {
 		}
 		s.mu.Unlock()
 		err = s.listener.Close()
+		s.sched.Wait()
 		s.manager.close()
 		s.wg.Wait()
 		if lerr := s.lock.Close(); err == nil {
@@ -311,7 +385,23 @@ func (s *Server) dispatch(ctx context.Context, req Request, send func(Response) 
 	m := s.manager
 	switch req.Op {
 	case OpHello:
-		return send(Response{Hello: &Hello{Service: s.build.Name, Version: s.build.Version, PID: os.Getpid()}})
+		return send(Response{Hello: &Hello{Service: s.build.Name, Version: s.build.Version, PID: os.Getpid(), ActiveRuns: m.activeCount()}})
+	case OpStop:
+		ids, err := m.drain(req.CancelRuns)
+		if err != nil {
+			return err
+		}
+		// From here the service is stopping whatever happens to this connection.
+		defer s.stopOnce.Do(func() { close(s.stopReq) })
+		runs := make([]RunInfo, 0, len(ids))
+		for _, id := range ids {
+			info, err := m.status(ctx, id)
+			if err != nil {
+				return err
+			}
+			runs = append(runs, info)
+		}
+		return send(Response{Runs: runs})
 	case OpInventory:
 		customers, err := m.customers(ctx)
 		if err != nil {
@@ -353,7 +443,7 @@ func (s *Server) dispatch(ctx context.Context, req Request, send func(Response) 
 		}
 		return send(Response{Run: &info})
 	default:
-		return &Error{Code: CodeBadRequest, Message: fmt.Sprintf("unknown operation %q", req.Op), Hint: "operations: " + strings.Join([]string{OpHello, OpInventory, OpActions, OpStart, OpCancel, OpStatus, OpRuns, OpEvents}, ", ")}
+		return &Error{Code: CodeBadRequest, Message: fmt.Sprintf("unknown operation %q", req.Op), Hint: "operations: " + strings.Join([]string{OpHello, OpInventory, OpActions, OpStart, OpCancel, OpStatus, OpRuns, OpEvents, OpStop}, ", ")}
 	}
 }
 

@@ -48,6 +48,17 @@ func (r Roots) All() []Root {
 	return []Root{r.Config, r.Data, r.State, r.Runtime}
 }
 
+// Overrides returns the environment assignments ("KTAGS_CONFIG_DIR=/…") that make Resolve return
+// these roots whatever else the environment holds. A process started outside the operator's
+// shell, such as the launchd service, gets them so it uses the same roots as its client.
+func (r Roots) Overrides() []string {
+	var out []string
+	for _, root := range r.All() {
+		out = append(out, root.Override+"="+root.Path)
+	}
+	return out
+}
+
 // Resolve computes the roots from env without touching the filesystem.
 //
 // Precedence for config, data and state: the specific KTAGS_*_DIR override, then KTAGS_HOME,

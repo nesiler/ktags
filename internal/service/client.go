@@ -62,6 +62,13 @@ func (c Client) Start(ctx context.Context, action string, target Target, args ma
 	return c.runReply(ctx, req)
 }
 
+// Stop asks the service to stop. While runs are active it is refused with a conflict error,
+// unless cancelRuns is set; it returns the runs it cancelled, in their final state.
+func (c Client) Stop(ctx context.Context, cancelRuns bool) ([]RunInfo, error) {
+	resp, err := c.one(ctx, Request{Op: OpStop, CancelRuns: cancelRuns})
+	return resp.Runs, err
+}
+
 // Cancel asks the service to cancel an active run.
 func (c Client) Cancel(ctx context.Context, id string) (RunInfo, error) {
 	return c.runReply(ctx, Request{Op: OpCancel, Run: id})

@@ -143,6 +143,8 @@ type setup struct {
 	store  run.Options
 	before func(runtime string)
 	server func(*Server)
+	// opts changes the options before Listen.
+	opts func(*Options)
 }
 
 func newFixture(t *testing.T, s setup) *fixture {
@@ -169,7 +171,11 @@ func newFixture(t *testing.T, s setup) *fixture {
 	if s.before != nil {
 		s.before(f.runtime)
 	}
-	srv, err := Listen(context.Background(), f.runtime, f.options())
+	opts := f.options()
+	if s.opts != nil {
+		s.opts(&opts)
+	}
+	srv, err := Listen(context.Background(), f.runtime, opts)
 	if err != nil {
 		t.Fatalf("Listen: %v", err)
 	}
