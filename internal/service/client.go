@@ -13,6 +13,10 @@ import (
 type Client struct {
 	// Socket is the service socket (SocketPath).
 	Socket string
+
+	// connected, when set, is called after the connection is made and before the request is
+	// written. Tests use it.
+	connected func()
 }
 
 // Hello identifies the running service.
@@ -142,16 +146,23 @@ func (c Client) call(ctx context.Context, req Request, each func(Response) (bool
 	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
 	defer stop()
 
-	req.Protocol = ProtocolVersion
-	if err := json.NewEncoder(conn).Encode(req); err != nil {
-		return c.connErr(ctx, err)
+	if c.connected != nil {
+		c.connected()
 	}
+
+	req.Protocol = ProtocolVersion
+	// The service may refuse and close before it reads a byte (the owner check), so a failed
+	// write is not the end: its refusal can already wait in the receive buffer.
+	werr := json.NewEncoder(conn).Encode(req)
 	reader := bufio.NewReader(conn)
 	for {
 		line, err := readLine(reader)
 		if err != nil {
 			if errors.Is(err, errTooLarge) {
 				return malformed("a reply exceeds the size limit")
+			}
+			if werr != nil {
+				err = werr
 			}
 			return c.connErr(ctx, err)
 		}
