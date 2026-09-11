@@ -17,9 +17,13 @@ type pattern struct {
 
 // Building blocks of the token/password patterns. Every value alternative is one capture group.
 const (
-	// sensitiveKey is a key or flag name containing token or password, e.g. rke2_token, --password.
-	// Every pattern using it is case-insensitive.
-	sensitiveKey = `[a-z0-9_.-]*(?:token|password)[a-z0-9_.-]*`
+	// sensitiveKey is a key or flag name containing token, password, passwd, api_key (apikey,
+	// api-key), private_key (private-key) or the kube config client-key-data, e.g. rke2_token,
+	// --password, apiKey. client-certificate-data and certificate-authority-data hold public
+	// certificates and stay readable; secret and credential are left out because they name
+	// non-secret things (secret_name, secretRef, kind: Secret). Every pattern using it is
+	// case-insensitive.
+	sensitiveKey = `[a-z0-9_.-]*(?:token|password|passwd|api[_-]?key|private[_-]?key|client-key-data)[a-z0-9_.-]*`
 	// quotedValue: a closed double- or single-quoted value ('' is YAML's escaped quote); a quote
 	// that never closes (a truncated line) masks to the end of the line.
 	quotedValue = `"((?:[^"\\]|\\.)*)"|'((?:[^']|'')*)'|"([^\n]*)|'([^\n]*)`
@@ -29,14 +33,16 @@ const (
 	// in \r\n; the \r stays outside the masked value.
 	blockValue = `[|>][-+0-9]*[ \t]*(?:#[^\n]*)?\r?\n(?:[ \t]*\r?\n)*[ \t]+` +
 		`([^\r\n]*(?:\r?\n(?:\r?\n)*[ \t]+[^\r\n]*)*)`
-	// separator: YAML/JSON ':', INI or flag '=', the '=>' hash arrow, and a doubled '::'.
-	separator = `[ \t]*(?:=>?|::?)[ \t]*`
+	// separator: YAML/JSON ':', INI or flag '=', the '=>' hash arrow, and a run of colons ('::',
+	// ':::'), so extra colons never become the whole masked value.
+	separator = `[ \t]*(?:=>?|:+)[ \t]*`
 	// yamlTag: an explicit YAML tag before the value. !!str and !!binary stay readable; any other
 	// word starting with ! (!vault, or a password such as "!abc def") is masked with the value.
 	yamlTag = `(?:!!(?:str|binary)[ \t]+|(!\S*)[ \t]*)?`
 	// yamlAnchor: a YAML anchor (&name) before or after the tag. It is masked with the value,
-	// because outside YAML (password=&abc x) the same text is part of the secret.
-	yamlAnchor = `(?:(&\S+)[ \t]+)?`
+	// because outside YAML (password=&abc x) the same text is part of the secret. A bare '&' is
+	// treated the same way, so the word after it is masked too.
+	yamlAnchor = `(?:(&\S*)[ \t]+)?`
 )
 
 // patterns follow security.md §1. Unquoted values stop at white space or a quote: over-masking the

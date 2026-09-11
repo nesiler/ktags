@@ -7,4 +7,14 @@
 // Every masked range becomes the literal text "[masked]" (Placeholder); overlapping or touching
 // ranges become one placeholder. For key/value pairs, flags and Bearer credentials only the value
 // is replaced and the key stays readable: `password: hunter2` becomes `password: [masked]`.
+//
+// Known limits, all chosen to hide more rather than less:
+//   - An unquoted value stops at white space; only the first word of a multi-word plain value is
+//     masked unless it follows an anchor or tag.
+//   - A value starting with '&' is treated as a YAML anchor, so the next word is masked as well,
+//     even when it is a separate non-secret pair (`password=&x user=bob` masks `user=bob`).
+//   - In the command-line form `--password &x word`, only `&x` is masked: a shell ends the command
+//     at '&', so `word` is not the flag's value.
+//   - Key names are matched anywhere in a word, so a non-secret key such as `private_key_file`
+//     or `--private-key` (a path) is masked too.
 package mask

@@ -16,8 +16,13 @@ their client keys, Tailscale auth keys, S3 backup credentials, bootstrap passwor
 SSH private keys, session cookies and API tokens of any kind.
 
 Enforcement in code: every free-text line that goes to a log or the screen passes the mask
-(`tskey-*`, `AGE-SECRET-KEY-*`, `token:`/`password:` values, PEM blocks, `K10…` RKE2 tokens,
-`Bearer …`). Ansible tasks touching secrets are `no_log: true`; the events callback replaces
+(`tskey-*`, `AGE-SECRET-KEY-*`, PEM blocks, `K10…` RKE2 tokens, `Bearer …`, and the values of
+keys and flags whose name contains `token`, `password`, `passwd`, `api_key`/`apikey`/`api-key`,
+`private_key`/`private-key` or the kube config `client-key-data`; names match
+case-insensitively). `client-certificate-data` and `certificate-authority-data` are public
+certificates and stay readable; `secret` and `credential` are not key classes, because they
+also name non-secret things (`secret_name`, `secretRef`, `kind: Secret`). Ansible tasks
+touching secrets are `no_log: true`; the events callback replaces
 their results with `"censored"`. A test proves the mask on each pattern.
 
 ## 2. Secrets at rest and in flight

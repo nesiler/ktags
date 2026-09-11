@@ -96,6 +96,21 @@ func TestMaskReplacesEachPattern(t *testing.T) {
 		{"flag with a tab", "cmd --token\tabc", "cmd --token\t[masked]"},
 		{"pem with an empty end label", "-----BEGIN -----\nx\n-----END ----- tail", "[masked] tail"},
 		{"two tailscale keys", "tskey-a and tskey-b", "[masked] and [masked]"},
+		{"kube config client key", "    client-key-data: LS0tZmFrZWtleQ==\n    token: x", "    client-key-data: [masked]\n    token: [masked]"},
+		{"kube config client key json", `{"client-key-data": "LS0tZmFrZQ==", "user": "ops"}`, `{"client-key-data": "[masked]", "user": "ops"}`},
+		{"kube config client key upper case", "CLIENT-KEY-DATA=Zm9v", "CLIENT-KEY-DATA=[masked]"},
+		{"passwd yaml", "ansible_passwd: hunter2", "ansible_passwd: [masked]"},
+		{"passwd flag", "cmd --passwd hunter2", "cmd --passwd [masked]"},
+		{"api_key yaml", "api_key: fakeapi1", "api_key: [masked]"},
+		{"apikey ini", "apikey=fakeapi2 next", "apikey=[masked] next"},
+		{"api-key flag", "cmd --api-key fakeapi3", "cmd --api-key [masked]"},
+		{"apiKey camel case json", `{"apiKey":"fakeapi4"}`, `{"apiKey":"[masked]"}`},
+		{"private_key yaml", "s3_private_key: fakepriv1", "s3_private_key: [masked]"},
+		{"private-key flag", "cmd --private-key=fakepriv2", "cmd --private-key=[masked]"},
+		{"privateKey camel case", "privateKey: fakepriv3", "privateKey: [masked]"},
+		{"password bare anchor", "password: & SEC15", "password: [masked] [masked]"},
+		{"password triple colon", "password::: SEC20", "password::: [masked]"},
+		{"token triple colon glued", "token:::abc", "token:::[masked]"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -136,6 +151,18 @@ func TestMaskKeepsTextWithoutSecrets(t *testing.T) {
 		"ktags secret rotate --token --debug",
 		"the rke2-token expired",
 		"--password",
+		"    client-certificate-data: LS0tY2VydA==",
+		"    certificate-authority-data: LS0tY2E=",
+		`{"client-certificate-data": "LS0tY2VydA==", "certificate-authority-data": "LS0tY2E="}`,
+		"secret_name: acme-tls",
+		"secretRef: acme-creds",
+		"secretKeyRef:\n  name: acme-creds\n  key: tls.crt",
+		"kind: Secret",
+		"credential: operator-file",
+		"client-key: /home/ops/.kube/client.key is missing",
+		"the api key and private key were rotated",
+		"passwd: ",
+		"the api-key expired",
 	}
 	for _, in := range tests {
 		if got := mask.Mask(in); got != in {
@@ -181,6 +208,12 @@ var secretBodies = map[string]string{
 	"password: |\r\n  crlfvalue":        "crlfvalue",
 	"password: !!str taggedval":         "taggedval",
 	`password => "arrowval"`:            "arrowval",
+	"client-key-data: Y2xpZW50a2V5":     "Y2xpZW50a2V5",
+	"passwd: passwdval":                 "passwdval",
+	"api_key=apikeyval":                 "apikeyval",
+	"--private-key privkeyval":          "privkeyval",
+	"password: & anchorword":            "anchorword",
+	"password::: colonval":              "colonval",
 }
 
 // FuzzMask runs its seed corpus in every `go test`; `go test -fuzz FuzzMask ./internal/mask`
