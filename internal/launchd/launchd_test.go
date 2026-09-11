@@ -317,3 +317,48 @@ func chmod(t *testing.T, path string, mode os.FileMode) {
 	}
 	t.Cleanup(func() { _ = os.Chmod(path, 0o700) })
 }
+
+// Program reads back the executable from the definition that Launch writes.
+func TestProgramReadsTheDefinition(t *testing.T) {
+	dir := t.TempDir()
+	program := "/opt/k tags/<ktags>&"
+	roots, err := paths.Resolve(paths.Env{Getenv: func(key string) string {
+		if key == "KTAGS_HOME" {
+			return dir
+		}
+		return ""
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent := New(program, roots)
+	data, err := agent.plist()
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(dir, "agent.plist")
+	if err := os.WriteFile(file, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := Program(file); err != nil || got != program {
+		t.Fatalf("Program = %q, %v; want %q", got, err, program)
+	}
+
+	if _, err := Program(filepath.Join(dir, "missing.plist")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("missing definition: %v", err)
+	}
+	for name, body := range map[string]string{
+		"not xml":             "<plist><dict>",
+		"key cut off":         "<plist><dict><key>Program",
+		"program cut off":     "<plist><dict><key>ProgramArguments</key><array><string>/bin",
+		"no ProgramArguments": "<plist><dict><key>Label</key><string>x</string><key>Program</key><string>/bin/x</string></dict></plist>",
+		"arguments not first": "<plist><dict><key>ProgramArguments</key><integer>1</integer><string>/bin/x</string></dict></plist>",
+	} {
+		if err := os.WriteFile(file, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if got, err := Program(file); err == nil {
+			t.Fatalf("%s: Program = %q, want an error", name, got)
+		}
+	}
+}

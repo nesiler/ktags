@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/nesiler/ktags/internal/core/domain"
+	"github.com/nesiler/ktags/internal/doctor"
 	"github.com/nesiler/ktags/internal/service"
 )
 
@@ -30,15 +31,16 @@ commands:
   fleet      show which customers need attention, from the service's cached state
   action     discover and run actions
   run        list, watch and cancel runs
+  doctor     check this laptop; names one fix per failing check (never starts the service)
   version    print the ktags version
 
-Commands other than service start the ktags service when it is not running. With --json
+Commands other than service and doctor start the ktags service when it is not running. With --json
 they never start it; they fail with exit 1 instead, so a document never describes a service
 the command itself started.
 
 exit codes: 0 success · 1 usage, validation or environment · 2 confirmation refused, or a
 conflict with the service's state (stop with active runs, cancel of a finished run) · 3 the
-run failed or was cancelled
+run failed or was cancelled · 4 a doctor check fails
 
 next: ktags action list
 `
@@ -49,6 +51,9 @@ type Runtime interface {
 	// Service returns the control of the local ktags service. It fails when the ktags roots
 	// cannot be resolved.
 	Service() (ServiceControl, error)
+	// Doctor runs every doctor check. It only reads; it fails when the ktags roots cannot
+	// be resolved.
+	Doctor(ctx context.Context) (doctor.Report, error)
 }
 
 // ServiceControl starts, inspects, stops and runs the local ktags service.
@@ -147,7 +152,7 @@ func (e *env) root() *cobra.Command {
 	root.SetFlagErrorFunc(func(cmd *cobra.Command, err error) error {
 		return usageError(cmd, err.Error())
 	})
-	root.AddCommand(e.serviceCmd(), e.customerCmd(), e.fleetCmd(), e.actionCmd(), e.runCmd(), &cobra.Command{
+	root.AddCommand(e.serviceCmd(), e.customerCmd(), e.fleetCmd(), e.actionCmd(), e.runCmd(), e.doctorCmd(), &cobra.Command{
 		Use:  "version",
 		Long: "usage: ktags version [--json]\n\nprints the ktags name and version.\n--json data: {\"name\",\"version\"}\n",
 		Args: positional(),

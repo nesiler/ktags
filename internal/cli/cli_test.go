@@ -10,15 +10,29 @@ import (
 	"testing"
 
 	"github.com/nesiler/ktags/internal/core/domain"
+	"github.com/nesiler/ktags/internal/doctor"
 	"github.com/nesiler/ktags/internal/service"
 )
 
 type fakeRuntime struct {
 	control *fakeControl
 	err     error
+	// report is what Doctor returns; doctorErr fails it.
+	report    doctor.Report
+	doctorErr error
 }
 
 func (fakeRuntime) Version() domain.Build { return domain.Build{Name: "ktags", Version: "test"} }
+
+func (r fakeRuntime) Doctor(context.Context) (doctor.Report, error) {
+	if r.doctorErr != nil {
+		return doctor.Report{}, r.doctorErr
+	}
+	if r.report.Status == "" {
+		return doctor.Report{Status: doctor.StatusOK, Checks: []doctor.Result{{ID: "platform", Title: "platform", Status: doctor.StatusOK, Evidence: "darwin/arm64"}}}, nil
+	}
+	return r.report, nil
+}
 
 func (r fakeRuntime) Service() (ServiceControl, error) {
 	if r.err != nil {

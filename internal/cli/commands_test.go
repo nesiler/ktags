@@ -189,7 +189,7 @@ func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("stdout i
 
 // A --json document that cannot be written is a failure, never exit 0.
 func TestDocumentWriteFails(t *testing.T) {
-	for _, args := range [][]string{{"version"}, {"run", "watch", "r7"}, {"service", "status"}} {
+	for _, args := range [][]string{{"version"}, {"run", "watch", "r7"}, {"service", "status"}, {"doctor"}} {
 		control, _ := newFake()
 		var stderr bytes.Buffer
 		code := Run(context.Background(), fakeRuntime{control: control}, append(args, "--json"), Streams{Out: failingWriter{}, Err: &stderr})
@@ -472,6 +472,7 @@ func TestJSONStdoutOnly(t *testing.T) {
 		{[]string{"service", "start"}, "service.start", 0},
 		{[]string{"service", "stop"}, "service.stop", 0},
 		{[]string{"customer", "list"}, "customer.list", 0},
+		{[]string{"doctor"}, "doctor", 0},
 		{[]string{"action", "list"}, "action.list", 0},
 		{[]string{"action", "show", "test", "echo"}, "action.show", 0},
 		{[]string{"action", "run", "doctor"}, "run.result", 0},

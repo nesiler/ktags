@@ -6,7 +6,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/xml"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -154,6 +156,50 @@ func privateDir(dir string) error {
 // the cause, because service.Error wraps only inside its own package.
 func unavailable(message, hint string) error {
 	return &service.Error{Code: service.CodeUnavailable, Message: message, Hint: hint}
+}
+
+// Program returns the executable that the job definition file starts: the first
+// ProgramArguments entry. It only reads the file.
+func Program(definition string) (string, error) {
+	data, err := os.ReadFile(definition) //nolint:gosec // the definition path is derived from the ktags state root
+	if err != nil {
+		return "", err
+	}
+	dec := xml.NewDecoder(bytes.NewReader(data))
+	arguments := false
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return "", errors.New("the definition has no ProgramArguments")
+			}
+			return "", fmt.Errorf("the definition is not a property list: %w", err)
+		}
+		start, ok := tok.(xml.StartElement)
+		if !ok {
+			continue
+		}
+		switch start.Name.Local {
+		case "key":
+			var key string
+			if err := dec.DecodeElement(&key, &start); err != nil {
+				return "", fmt.Errorf("the definition is not a property list: %w", err)
+			}
+			arguments = key == "ProgramArguments"
+		case "array":
+		case "string":
+			if !arguments {
+				continue
+			}
+			var program string
+			if err := dec.DecodeElement(&program, &start); err != nil {
+				return "", fmt.Errorf("the definition is not a property list: %w", err)
+			}
+			return program, nil
+		default:
+			arguments = false
+		}
+	}
 }
 
 func (a Agent) plist() ([]byte, error) {
