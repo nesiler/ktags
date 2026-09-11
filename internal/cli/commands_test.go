@@ -562,7 +562,7 @@ func TestClientErrors(t *testing.T) {
 // to the operator with exit 1; nothing is started or cancelled.
 func TestPassthroughErrors(t *testing.T) {
 	commands := [][]string{
-		{"customer", "list"}, {"action", "list"}, {"action", "show", "doctor"}, {"action", "run", "doctor"},
+		{"customer", "list"}, {"fleet", "list"}, {"action", "list"}, {"action", "show", "doctor"}, {"action", "run", "doctor"},
 		{"run", "list"}, {"run", "status", "r7"}, {"run", "watch", "r7"}, {"run", "cancel", "rB", "--yes"},
 	}
 	for _, args := range commands {
@@ -580,6 +580,7 @@ func TestPassthroughErrors(t *testing.T) {
 		set  func(*fakeClient)
 	}{
 		{[]string{"customer", "list"}, func(c *fakeClient) { c.customersErr = failing }},
+		{[]string{"fleet", "list"}, func(c *fakeClient) { c.fleetErr = failing }},
 		{[]string{"action", "list"}, func(c *fakeClient) { c.actionsErr = failing }},
 		{[]string{"action", "show", "doctor"}, func(c *fakeClient) { c.actionsErr = failing }},
 		{[]string{"action", "run", "doctor"}, func(c *fakeClient) { c.actionsErr = failing }},

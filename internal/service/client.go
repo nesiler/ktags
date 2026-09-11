@@ -33,6 +33,18 @@ func (c Client) Customers(ctx context.Context) ([]CustomerInfo, error) {
 	return resp.Customers, err
 }
 
+// Fleet returns the cached fleet summary. The service measures nothing to answer it.
+func (c Client) Fleet(ctx context.Context) (FleetInfo, error) {
+	resp, err := c.one(ctx, Request{Op: OpFleet})
+	if err != nil {
+		return FleetInfo{}, err
+	}
+	if resp.Fleet == nil {
+		return FleetInfo{}, malformed("the fleet.list reply has no fleet field")
+	}
+	return *resp.Fleet, nil
+}
+
 // Actions lists the registered actions.
 func (c Client) Actions(ctx context.Context) ([]ActionInfo, error) {
 	resp, err := c.one(ctx, Request{Op: OpActions})

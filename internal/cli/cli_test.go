@@ -92,6 +92,10 @@ type fakeClient struct {
 	startErr     error
 	statusErr    error
 	cancelErr    error
+	// fleet is the fleet summary the service reports; fleetCalls counts the requests.
+	fleet      service.FleetInfo
+	fleetErr   error
+	fleetCalls int
 }
 
 type fakeRun struct {
@@ -113,6 +117,14 @@ func (c *fakeClient) Customers(context.Context) ([]service.CustomerInfo, error) 
 		return nil, c.customersErr
 	}
 	return c.customers, nil
+}
+
+func (c *fakeClient) Fleet(context.Context) (service.FleetInfo, error) {
+	c.fleetCalls++
+	if c.fleetErr != nil {
+		return service.FleetInfo{}, c.fleetErr
+	}
+	return c.fleet, nil
 }
 
 func (c *fakeClient) Actions(context.Context) ([]service.ActionInfo, error) {

@@ -27,6 +27,7 @@ Human output goes to stdout. With --json, stdout holds exactly one JSON document
 commands:
   service    start, inspect and stop the local ktags service
   customer   list the customers in the inventory
+  fleet      show which customers need attention, from the service's cached state
   action     discover and run actions
   run        list, watch and cancel runs
   version    print the ktags version
@@ -64,6 +65,7 @@ type ServiceControl interface {
 // Client is the service protocol as the CLI uses it; service.Client implements it.
 type Client interface {
 	Customers(ctx context.Context) ([]service.CustomerInfo, error)
+	Fleet(ctx context.Context) (service.FleetInfo, error)
 	Actions(ctx context.Context) ([]service.ActionInfo, error)
 	Runs(ctx context.Context) ([]service.RunInfo, error)
 	Start(ctx context.Context, action string, target service.Target, args map[string]any) (service.RunInfo, error)
@@ -145,7 +147,7 @@ func (e *env) root() *cobra.Command {
 	root.SetFlagErrorFunc(func(cmd *cobra.Command, err error) error {
 		return usageError(cmd, err.Error())
 	})
-	root.AddCommand(e.serviceCmd(), e.customerCmd(), e.actionCmd(), e.runCmd(), &cobra.Command{
+	root.AddCommand(e.serviceCmd(), e.customerCmd(), e.fleetCmd(), e.actionCmd(), e.runCmd(), &cobra.Command{
 		Use:  "version",
 		Long: "usage: ktags version [--json]\n\nprints the ktags name and version.\n--json data: {\"name\",\"version\"}\n",
 		Args: positional(),
