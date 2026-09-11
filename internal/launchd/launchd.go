@@ -82,7 +82,7 @@ func (a Agent) Launch(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if _, err := a.Launchctl(ctx, "print", a.target()); err == nil {
+	if a.Loaded(ctx) {
 		return nil
 	}
 	if err := a.write(data); err != nil {
@@ -108,9 +108,15 @@ func (a Agent) Stale() (bool, error) {
 	return !bytes.Equal(got, want), nil
 }
 
+// Loaded reports whether launchd has the job loaded, running or not.
+func (a Agent) Loaded(ctx context.Context) bool {
+	_, err := a.Launchctl(ctx, "print", a.target())
+	return err == nil
+}
+
 // Unload removes the job from launchd. A job that is not loaded is left alone.
 func (a Agent) Unload(ctx context.Context) error {
-	if _, err := a.Launchctl(ctx, "print", a.target()); err != nil {
+	if !a.Loaded(ctx) {
 		return nil
 	}
 	return a.launchctl(ctx, "bootout", a.target())

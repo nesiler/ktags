@@ -55,10 +55,13 @@ func TestDoctorDeduplicatesFixes(t *testing.T) {
 		{ID: "roots.config", Title: "config", Status: doctor.StatusFail, Evidence: "mode 0755", Fix: "chmod 700 '/k/config'"},
 		{ID: "service.protocol", Title: "protocol", Status: doctor.StatusWarn, Evidence: "not measured", Fix: "ktags service start"},
 		{ID: "inventory.list", Title: "inventory", Status: doctor.StatusWarn, Evidence: "not measured", Fix: "ktags service start"},
+		{ID: "roots.data", Title: "data", Status: doctor.StatusFail, Evidence: "mode 0755", Fix: "chmod 700 '/k/data'"},
+		{ID: "roots.state", Title: "state", Status: doctor.StatusFail, Evidence: "mode 0755", Fix: "chmod 700 '/k/data'"},
 	}}
 	control, _ := newFake()
 	code, stdout, _ := runCLI(fakeRuntime{control: control, report: report}, "doctor")
-	want := `doctor: 2 failing, 2 warning of 4 checks
+	// Three rows share one fix, two rows another (the boundary), one fix is alone.
+	want := `doctor: 4 failing, 2 warning of 6 checks
   fail  service.socket  socket
         no service
         fix: ktags service start
@@ -72,6 +75,13 @@ func TestDoctorDeduplicatesFixes(t *testing.T) {
   warn  inventory.list  inventory
         not measured
         fix: as for service.socket
+  fail  roots.data  data
+        mode 0755
+        fix: chmod 700 '/k/data'
+        (fixes roots.data, roots.state)
+  fail  roots.state  state
+        mode 0755
+        fix: as for roots.data
 next: run each fix, then ktags doctor again
 `
 	if code != 4 || stdout != want {

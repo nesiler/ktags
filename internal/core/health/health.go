@@ -130,9 +130,9 @@ type Engine struct {
 	// missedBase is the schedule's missed count of a customer when its cached report started;
 	// a view counts only the slots missed after it.
 	missedBase map[string]int
-	// leaked counts, per check and customer, the runs whose caller stopped waiting while the
-	// check had not returned. While one is alive the check is not started again.
-	leaked map[string]int
+	// alive holds, per check and customer, a check that has started and not yet returned,
+	// whether or not its caller still waits for it. While it is set the check is not started.
+	alive map[string]bool
 }
 
 // New validates the options. It refuses a missing clock or redactor, no checks, a check without
@@ -200,7 +200,7 @@ func New(opts Options) (*Engine, error) {
 		reports:    map[string]Report{},
 		running:    map[string]int{},
 		missedBase: map[string]int{},
-		leaked:     map[string]int{},
+		alive:      map[string]bool{},
 	}
 	jobs := make([]schedule.Job, 0, len(e.customers))
 	for _, customer := range e.customers {
@@ -316,8 +316,9 @@ func (e *Engine) scheduledMissed(customer string) int {
 
 // runCheck runs c and stops waiting at its timeout, even when c ignores its context. A check
 // that ignores the context keeps its goroutine until it returns, but no longer holds the slot.
-// While such a goroutine is alive the check is not started again for the customer, so a hung
-// check leaks at most one goroutine instead of one per run.
+// A check is alive for the customer from its start until it returns; while it is, no other run
+// starts it, whether that run overlaps it or follows a run that stopped waiting. A hung check
+// therefore leaks at most one goroutine.
 func (e *Engine) runCheck(ctx context.Context, c Check, customer string) CheckResult {
 	timeout := c.Timeout
 	if timeout == 0 {
@@ -326,28 +327,22 @@ func (e *Engine) runCheck(ctx context.Context, c Check, customer string) CheckRe
 	res := CheckResult{Check: c.Name, Severity: c.Severity, MeasuredAt: e.clock.Now()}
 	key := c.Name + "\x00" + customer
 	e.mu.Lock()
-	if e.leaked[key] > 0 {
+	if e.alive[key] {
 		e.mu.Unlock()
 		res.Status = StatusTimeout
 		res.Detail = "not started: the previous run is still running"
 		return res
 	}
+	e.alive[key] = true
 	e.mu.Unlock()
 
 	cctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	// finished and abandoned are guarded by e.mu.
-	var finished, abandoned bool
 	done := make(chan error, 1)
 	go func() {
 		err := c.Run(cctx, customer)
 		e.mu.Lock()
-		finished = true
-		if abandoned {
-			if e.leaked[key]--; e.leaked[key] == 0 {
-				delete(e.leaked, key)
-			}
-		}
+		delete(e.alive, key)
 		e.mu.Unlock()
 		done <- err
 	}()
@@ -361,23 +356,11 @@ func (e *Engine) runCheck(ctx context.Context, c Check, customer string) CheckRe
 	case <-e.clock.After(timeout):
 		res.Status = StatusTimeout
 		res.Detail = fmt.Sprintf("no answer within %s", timeout)
-		e.abandon(key, &finished, &abandoned)
 	case <-ctx.Done():
 		// The caller reads ctx and discards this result.
-		e.abandon(key, &finished, &abandoned)
 	}
 	res.Duration = e.clock.Now().Sub(res.MeasuredAt)
 	return res
-}
-
-// abandon records a check goroutine that is still running after its caller stopped waiting.
-func (e *Engine) abandon(key string, finished, abandoned *bool) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	if !*finished {
-		*abandoned = true
-		e.leaked[key]++
-	}
 }
 
 // View is what a client shows for one customer: the latest result, when it was measured and

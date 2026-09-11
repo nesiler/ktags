@@ -548,7 +548,7 @@ func TestHungCheckNotRestarted(t *testing.T) {
 	eventually(t, "the hung check returns", func() bool {
 		e.mu.Lock()
 		defer e.mu.Unlock()
-		return len(e.leaked) == 0
+		return len(e.alive) == 0
 	})
 	reports, err := e.Run(context.Background(), "acme")
 	if err != nil || reports[0].Health != HealthOK || started.Load() != 2 {
@@ -647,36 +647,43 @@ func TestMissedResetsAfterFreshMeasurement(t *testing.T) {
 // began before a sleep and ends after it is cached while the catch-up still runs; its view is
 // stale and counts the slots of the sleep.
 func TestMissedBaseTakenAtStart(t *testing.T) {
-	c := &calls{}
 	manual, catchUp := make(chan struct{}), make(chan struct{})
-	started := make(chan int, 8)
-	clock := newFakeClock()
-	// The timeout outlasts the sleep, so the held manual check is not abandoned (and then, by
-	// D2, the catch-up refused) when the clock jumps.
-	e := newEngine(t, clock, Options{Customers: []string{"acme"}, Checks: []Check{{Name: "ssh", Severity: SeverityCritical, Timeout: 24 * time.Hour, Run: func(ctx context.Context, customer string) error {
-		n := c.record(clock, customer)
-		started <- n
-		gate := map[int]chan struct{}{2: manual, 3: catchUp}[n]
-		if gate != nil {
-			select {
-			case <-gate:
-			case <-ctx.Done():
+	held := make(chan string, 2)
+	var aRuns, bRuns atomic.Int32
+	// By D2 two runs never share a check, so the manual run is held in check b and the
+	// catch-up in check a. The timeouts outlast the sleep.
+	hold := func(name string, runs *atomic.Int32, at int32, gate chan struct{}) func(context.Context, string) error {
+		return func(ctx context.Context, _ string) error {
+			if runs.Add(1) == at {
+				held <- name
+				select {
+				case <-gate:
+				case <-ctx.Done():
+				}
 			}
+			return nil
 		}
-		return nil
-	}}}})
+	}
+	clock := newFakeClock()
+	e := newEngine(t, clock, Options{Customers: []string{"acme"}, Checks: []Check{
+		{Name: "a", Severity: SeverityCritical, Timeout: 24 * time.Hour, Run: hold("a", &aRuns, 3, catchUp)},
+		{Name: "b", Severity: SeverityCritical, Timeout: 24 * time.Hour, Run: hold("b", &bRuns, 2, manual)},
+	}})
 	start(t, e)
-	clock.idle(t, 2)
-	<-started // the first slot
+	clock.idle(t, 3) // the first slot's two check timeouts, then the schedule's next wait
 	done := make(chan []Report, 1)
 	go func() {
 		reports, _ := e.Run(context.Background(), "acme")
 		done <- reports
 	}()
-	<-started // the manual run is held
-	clock.idle(t, 1)
+	if got := <-held; got != "b" {
+		t.Fatalf("held %s, want the manual run in b", got)
+	}
+	clock.idle(t, 2)
 	clock.Advance(3*time.Hour + 7*time.Minute)
-	<-started // the catch-up is held
+	if got := <-held; got != "a" {
+		t.Fatalf("held %s, want the catch-up in a", got)
+	}
 	close(manual)
 	<-done
 	if v := view(t, e, "acme"); !v.Stale || v.Trigger != TriggerManual || v.Missed != 12 {
@@ -684,23 +691,47 @@ func TestMissedBaseTakenAtStart(t *testing.T) {
 	}
 	close(catchUp)
 	eventually(t, "the catch-up result is cached", func() bool { return view(t, e, "acme").Trigger == TriggerScheduled })
-	if v := view(t, e, "acme"); v.Stale || v.Missed != 0 {
-		t.Fatalf("after the catch-up: %+v, want fresh and no missed count", v)
+	if v := view(t, e, "acme"); v.Stale || v.Missed != 0 || v.Health != HealthOK {
+		t.Fatalf("after the catch-up: %+v, want fresh, ok and no missed count", v)
 	}
 }
 
-// #68-K1 D2: a check that returned before its caller stopped waiting is not counted as leaked.
-func TestAbandonFinishedCheck(t *testing.T) {
-	e := newEngine(t, newFakeClock(), Options{Customers: []string{"acme"}, Checks: []Check{{Name: "ssh", Severity: SeverityCritical, Run: ok}}})
-	finished, abandoned := true, false
-	e.abandon("ssh\x00acme", &finished, &abandoned)
-	if abandoned || len(e.leaked) != 0 {
-		t.Fatalf("abandoned %v, leaked %v; want nothing recorded for a finished check", abandoned, e.leaked)
+// #68-K1 D2: a check is alive from its start until it returns, not only after a caller stopped
+// waiting. A run that overlaps one still inside the check (a manual run during a scheduled one)
+// does not start it again and reports it as a timeout; once it returns, it runs again.
+func TestOverlappingRunDoesNotRestartCheck(t *testing.T) {
+	block := make(chan struct{})
+	var started atomic.Int32
+	running := make(chan struct{}, 2)
+	clock := newFakeClock()
+	e := newEngine(t, clock, Options{Customers: []string{"acme"}, Concurrency: 2, Checks: []Check{{Name: "ssh", Severity: SeverityCritical, Timeout: time.Minute, Run: func(context.Context, string) error {
+		if started.Add(1) == 1 {
+			running <- struct{}{}
+			<-block
+		}
+		return nil
+	}}}})
+	first := make(chan []Report, 1)
+	go func() {
+		reports, _ := e.Run(context.Background(), "acme")
+		first <- reports
+	}()
+	clock.idle(t, 1)
+	<-running // the first run is inside the check and still waits for it
+	reports, err := e.Run(context.Background(), "acme")
+	if err != nil || reports[0].Checks[0].Status != StatusTimeout || reports[0].Checks[0].Detail != "not started: the previous run is still running" {
+		t.Fatalf("overlapping run: %+v %v", reports, err)
 	}
-	finished = false
-	e.abandon("ssh\x00acme", &finished, &abandoned)
-	if !abandoned || e.leaked["ssh\x00acme"] != 1 {
-		t.Fatalf("abandoned %v, leaked %v; want the running check recorded", abandoned, e.leaked)
+	if n := started.Load(); n != 1 {
+		t.Fatalf("the check started %d times while the first run was in it, want 1", n)
+	}
+	close(block)
+	if r := <-first; r[0].Health != HealthOK {
+		t.Fatalf("first run %+v, want its own ok result", r)
+	}
+	reports, err = e.Run(context.Background(), "acme")
+	if err != nil || reports[0].Health != HealthOK || started.Load() != 2 {
+		t.Fatalf("after the first run: %+v %v, %d starts; want a new ok run", reports, err, started.Load())
 	}
 }
 
@@ -938,7 +969,9 @@ func TestNewerResultWins(t *testing.T) {
 	if old := <-done; len(old) != 1 || !old[0].MeasuredAt.Equal(t0) {
 		t.Fatalf("older run %+v", old)
 	}
-	if v := view(t, e, "acme"); !v.MeasuredAt.Equal(t0.Add(time.Minute)) || v.Health != HealthOK {
+	// By D2 the newer run did not start the check the older one was still in; its result is
+	// that refusal, and the older run's later failure does not replace it.
+	if v := view(t, e, "acme"); !v.MeasuredAt.Equal(t0.Add(time.Minute)) || v.Checks[0].Detail != "not started: the previous run is still running" {
 		t.Fatalf("view %+v, want the newer 09:01 result", v)
 	}
 }

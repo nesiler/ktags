@@ -46,12 +46,13 @@ type inProcess struct {
 	t       *testing.T
 	runtime string
 	opts    Options
-	// fail is returned by Launch; silent launches nothing; keep ignores a client's stop.
-	fail           error
-	silent, keep   bool
-	launches       int
-	unloads        int
-	unloadFailures error
+	// fail is returned by Launch; silent launches nothing; keep ignores a client's stop; loaded
+	// is what Loaded reports.
+	fail                 error
+	silent, keep, loaded bool
+	launches             int
+	unloads              int
+	unloadFailures       error
 }
 
 func (l *inProcess) Launch(ctx context.Context) error {
@@ -77,6 +78,8 @@ func (l *inProcess) Launch(ctx context.Context) error {
 	})
 	return nil
 }
+
+func (l *inProcess) Loaded(context.Context) bool { return l.loaded }
 
 func (l *inProcess) Unload(context.Context) error {
 	l.unloads++
@@ -153,6 +156,18 @@ func TestStartTimesOutWhenNothingAnswers(t *testing.T) {
 	lc.Timeout = 100 * time.Millisecond
 	_, started, err := lc.Start(context.Background())
 	if pe := wantCode(t, err, CodeUnavailable); started || !strings.Contains(pe.Message, "did not answer") || !strings.Contains(pe.Hint, "ktags service run") {
+		t.Fatalf("Start: started %v, %q / %q", started, pe.Message, pe.Hint)
+	}
+}
+
+// #68-K1 D3: a job the launcher still has loaded is left alone by Start, so when it does not
+// answer, the error names the only fix: replace the job.
+func TestStartNamesReplaceFixForLoadedJob(t *testing.T) {
+	lc, launcher, _ := newLifecycle(t)
+	launcher.silent, launcher.loaded = true, true
+	lc.Timeout = 100 * time.Millisecond
+	_, started, err := lc.Start(context.Background())
+	if pe := wantCode(t, err, CodeUnavailable); started || !strings.Contains(pe.Message, "its job is loaded") || pe.Hint != "replace the job with: "+StaleFix {
 		t.Fatalf("Start: started %v, %q / %q", started, pe.Message, pe.Hint)
 	}
 }
