@@ -425,5 +425,61 @@ class GuardInventoryContractTests(unittest.TestCase):
         self.assertIn("Round 3 of #34 then found one false \"not a guard\" reason and one missing row.", text)
 
 
+class ReviewFollowUpContractTests(unittest.TestCase):
+    """#62: rule text from review follow-ups on PR #38, #42 and #60 stays in place."""
+
+    def text(self, path):
+        # Rules wrap across lines; compare with whitespace collapsed.
+        return " ".join((ROOT / path).read_text().split())
+
+    def test_review_compares_the_two_lists(self):
+        self.assertIn(
+            "before you read the PR's `Guard inventory` table. Then compare the two lists: "
+            "- A guard in the diff with no row in the table",
+            self.text(".agents/skills/review/SKILL.md"))
+
+    def test_template_inventory_columns(self):
+        lines = (ROOT / ".github/PULL_REQUEST_TEMPLATE.md").read_text().splitlines()
+        self.assertIn(
+            "| # | Guard / branch | `file:line` | Break-see-red, or `not a guard, because …` |", lines)
+
+    def test_ui_missed_row_matches_cli(self):
+        text = self.text("docs/guides/ui.md")
+        self.assertIn(
+            "| missed | a scheduled run that did not happen (laptop asleep, service stopped); as "
+            "ADR-0001 requires, it is never run late.", text)
+        self.assertIn(
+            "a stale check shows its last result greyed with its age plus the word \"missed\" "
+            "(CLI \"stale, N missed\"), and a check that has since run fresh keeps its current "
+            "value plus the count (CLI \"fresh, N missed\").", text)
+        self.assertIn("A missed run is never shown as ok or as completed |", text)
+        # The guide follows the CLI on main; this unit case pins the fresh wording there.
+        self.assertIn('"fresh, 3 missed"', (ROOT / "internal/cli/fleet_test.go").read_text())
+
+    def test_development_exit_two_covers_conflict(self):
+        self.assertIn(
+            "`2` confirmation refused, customer locked, or a service `conflict` (the request does "
+            "not fit the service's state: stop with active runs, cancel of a finished run)",
+            self.text("docs/guides/development.md"))
+
+    def test_roster_travel_left_to_roster_decision(self):
+        self.assertIn(
+            "The export below carries the customer directory; how the roster travels with it "
+            "(the whole roster or only that customer's recipients) is set by the roster decision "
+            "that ADR-0004 names, not by this guide.", self.text("docs/guides/security.md"))
+        self.assertIn(
+            "operator roster in the config dir, exported with the customer (how: `security.md §2`)",
+            self.text("docs/guides/ansible.md"))
+
+    def test_security_paragraph_lines_fit(self):
+        fenced = False
+        for number, line in enumerate((ROOT / "docs/guides/security.md").read_text().splitlines(), 1):
+            if line.startswith("```"):
+                fenced = not fenced
+            if fenced or line.startswith("|"):
+                continue
+            self.assertLessEqual(len(line), 100, f"security.md:{number}")
+
+
 if __name__ == "__main__":
     unittest.main()
