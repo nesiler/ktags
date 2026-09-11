@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import subprocess
 import tempfile
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -338,6 +339,280 @@ if args[:2]==["pr","checks"] and os.environ.get("FAKE_CI")=="FAILURE":
                 data = json.loads(result.stdout)
                 self.assertEqual(data["done"], ci == "SUCCESS")
                 self.assertEqual(data["verdict"], "accept")
+
+
+FAKE_TMUX = r'''#!/bin/sh
+state="$FAKE_STATE"
+case "$1" in
+  has-session) [ -f "$state/started" ] && [ ! -f "$state/killed" ] ;;
+  new-session) rm -f "$state/killed"; echo "$@" > "$state/started" ;;
+  capture-pane) cat "$state/pane" 2>/dev/null ;;
+  kill-session) touch "$state/killed" ;;
+  *) exit 0 ;;
+esac
+'''
+
+FAKE_GIT = r'''#!/bin/sh
+echo "$@" >> "$FAKE_STATE/git.log"
+case "$*" in
+  *"worktree add"*) eval "path=\${$(($# - 1))}"; mkdir -p "$path" ;;
+  *"worktree remove"*) eval "path=\${$#}"; rm -rf "$path" ;;
+  *"rev-parse"*) echo 0000000000000000000000000000000000000000 ;;
+esac
+exit 0
+'''
+
+TRUST_SCREEN = """Quick safety check: Is this a project you created or one you trust?
+Claude Code'll be able to read, edit, and execute files here.
+ ❯ No, exit
+   Yes, I trust this folder
+Enter to confirm · Esc to cancel
+"""
+
+
+class ClaudeTrustTests(unittest.TestCase):
+    """Workspace trust for runner-created Claude worktrees (#74); tmux and git are fakes."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        base = Path(self.tmp.name)
+        self.base = base
+        self.home, self.config_dir, self.wt = base / "home", base / "claude", base / "wt"
+        self.runs, self.state, self.bin, self.repo = base / "runs", base / "state", base / "bin", base / "repo"
+        for directory in (self.home, self.config_dir, self.wt, self.runs, self.state, self.bin, self.repo):
+            directory.mkdir()
+        self.config = self.config_dir / ".claude.json"
+        self.config.write_text(json.dumps({"numStartups": 3, "projects": {
+            "/elsewhere": {"hasTrustDialogAccepted": True, "allowedTools": ["Bash"]}}}))
+        for name, body in (("tmux", FAKE_TMUX), ("git", FAKE_GIT),
+                           ("claude", "#!/bin/sh\nexit 0\n"), ("codex", "#!/bin/sh\nexit 0\n")):
+            (self.bin / name).write_text(body)
+            (self.bin / name).chmod(0o755)
+        self.prompt = base / "prompt.md"
+        self.prompt.write_text("probe\n")
+        env = {key: value for key, value in os.environ.items() if key != "KTAGS_SESSION"}
+        self.env = {**env, "HOME": str(self.home), "CLAUDE_CONFIG_DIR": str(self.config_dir),
+                    "KTAGS_ROOT": str(self.repo), "KTAGS_WORKTREE_DIR": str(self.wt),
+                    "KTAGS_RUN_DIR": str(self.runs), "KTAGS_CLAUDE_BIN": str(self.bin / "claude"),
+                    "FAKE_STATE": str(self.state), "KTAGS_CLAUDE_LOCK_TRIES": "3",
+                    "PATH": str(self.bin) + os.pathsep + os.environ["PATH"]}
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def run_script(self, *args, **env):
+        return subprocess.run(["bash", str(ROOT / "scripts/session.sh"), *args],
+                              capture_output=True, text=True, env={**self.env, **env})
+
+    def trust(self, action, name, **env):
+        return subprocess.run(
+            ["bash", "-c", 'source "$1"; claude_trust "$2" "$3"', "test",
+             str(ROOT / "scripts/session.sh"), action, name],
+            capture_output=True, text=True, env={**self.env, **env})
+
+    def projects(self):
+        return json.loads(self.config.read_text())["projects"]
+
+    def key(self, name):
+        return os.path.realpath(self.wt) + "/" + name
+
+    def test_claude_trust_grants_only_the_new_worktree(self):
+        (self.wt / "ktags-74-dev").mkdir()
+        result = self.trust("grant", "ktags-74-dev")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        config = json.loads(self.config.read_text())
+        # The key is the realpath Claude falls back to, not the symlinked temp path.
+        self.assertEqual(config["projects"][self.key("ktags-74-dev")], {"hasTrustDialogAccepted": True})
+        self.assertIs(config["projects"][self.key("ktags-74-dev")]["hasTrustDialogAccepted"], True)
+        self.assertEqual(config["projects"]["/elsewhere"], {"hasTrustDialogAccepted": True, "allowedTools": ["Bash"]})
+        self.assertEqual(config["numStartups"], 3)
+        self.assertEqual(len(config["projects"]), 2)
+        self.assertFalse(Path(str(self.config) + ".lock").exists())
+
+    def test_claude_trust_keeps_the_config_mode_and_creates_a_private_one(self):
+        (self.wt / "ktags-74-dev").mkdir()
+        self.config.chmod(0o640)
+        self.assertEqual(self.trust("grant", "ktags-74-dev").returncode, 0)
+        self.assertEqual(self.config.stat().st_mode & 0o777, 0o640)
+        self.config.unlink()
+        self.assertEqual(self.trust("grant", "ktags-74-dev").returncode, 0)
+        self.assertEqual(self.config.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(json.loads(self.config.read_text()),
+                         {"projects": {self.key("ktags-74-dev"): {"hasTrustDialogAccepted": True}}})
+
+    def test_claude_trust_keeps_a_symlinked_config(self):
+        real = self.base / "dotfiles.json"
+        real.write_text(self.config.read_text())
+        self.config.unlink()
+        self.config.symlink_to(real)
+        (self.wt / "ktags-74-dev").mkdir()
+        self.assertEqual(self.trust("grant", "ktags-74-dev").returncode, 0)
+        self.assertTrue(self.config.is_symlink())
+        self.assertIn(self.key("ktags-74-dev"), json.loads(real.read_text())["projects"])
+
+    def test_claude_trust_refuses_broad_or_foreign_paths(self):
+        before = self.config.read_text()
+        (self.home / "ktags-74-dev").mkdir()
+        (self.wt / "ktags-75-dev").symlink_to(self.home)
+        cases = (
+            ("grant", "../home", {}),                          # not a session key
+            ("revoke", "../home", {}),
+            ("grant", "ktags-74-dev", {}),                     # no such worktree
+            ("grant", "ktags-75-dev", {}),                     # symlink escaping the root
+            ("grant", "ktags-74-dev", {"KTAGS_WORKTREE_DIR": str(self.base / "missing")}),
+            ("revoke", "ktags-74-dev", {"KTAGS_WORKTREE_DIR": str(self.base / "missing")}),
+            ("grant", "ktags-74-dev", {"KTAGS_WORKTREE_DIR": str(self.home)}),
+            ("grant", "ktags-74-dev", {"KTAGS_WORKTREE_DIR": "/"}),
+        )
+        for action, name, env in cases:
+            with self.subTest(action=action, name=name, env=env):
+                result = self.trust(action, name, **env)
+                self.assertEqual(result.returncode, 60, result.stderr)
+                self.assertEqual(self.config.read_text(), before)
+
+    def test_claude_trust_refuses_malformed_config(self):
+        (self.wt / "ktags-74-dev").mkdir()
+        for body, message in (("{not json", "cannot read"), ("[]", "projects map"),
+                              ('{"projects": []}', "projects map"),
+                              (json.dumps({"projects": {self.key("ktags-74-dev"): True}}), "projects map")):
+            with self.subTest(body=body):
+                self.config.write_text(body)
+                result = self.trust("grant", "ktags-74-dev")
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(message, result.stderr)
+                self.assertNotIn("Traceback", result.stderr)
+                self.assertEqual(self.config.read_text(), body)
+                self.assertEqual(sorted(p.name for p in self.config_dir.iterdir()), [".claude.json"])
+
+    def test_claude_trust_waits_for_the_config_lock(self):
+        (self.wt / "ktags-74-dev").mkdir()
+        before = self.config.read_text()
+        lock = Path(str(self.config) + ".lock")
+        lock.mkdir()
+        result = self.trust("grant", "ktags-74-dev")
+        self.assertEqual(result.returncode, 20)
+        self.assertIn("lock held", result.stderr)
+        self.assertEqual(self.config.read_text(), before)
+        self.assertTrue(lock.is_dir(), "a lock held by Claude must not be removed")
+        timer = threading.Timer(0.5, lock.rmdir)
+        timer.start()
+        result = self.trust("grant", "ktags-74-dev", KTAGS_CLAUDE_LOCK_TRIES="50")
+        timer.join()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(self.key("ktags-74-dev"), self.projects())
+        missing = self.trust("grant", "ktags-74-dev", CLAUDE_CONFIG_DIR=str(self.base / "absent"))
+        self.assertEqual(missing.returncode, 20)
+        self.assertIn("config directory missing", missing.stderr)
+
+    def test_claude_trust_revoke_removes_only_that_worktree(self):
+        for name in ("ktags-74-dev", "ktags-74-review"):
+            (self.wt / name).mkdir()
+            self.assertEqual(self.trust("grant", name).returncode, 0)
+        (self.wt / "ktags-74-dev").rmdir()
+        self.assertEqual(self.trust("revoke", "ktags-74-dev").returncode, 0)
+        self.assertEqual(set(self.projects()), {"/elsewhere", self.key("ktags-74-review")})
+        self.config.unlink()
+        self.assertEqual(self.trust("revoke", "ktags-74-review").returncode, 0)
+        self.assertFalse(self.config.exists(), "revoke must not create a config")
+
+    def test_runner_pins_the_granted_claude_config(self):
+        command = 'source "$1"; claude_config_pin'
+        script = str(ROOT / "scripts/session.sh")
+        pinned = subprocess.check_output(["bash", "-c", command, "test", script], text=True,
+                                         env={**self.env, "CLAUDE_CONFIG_DIR": "/cfg dir"})
+        self.assertEqual(pinned.strip(), "export CLAUDE_CONFIG_DIR=/cfg\\ dir")
+        env = {key: value for key, value in self.env.items() if key != "CLAUDE_CONFIG_DIR"}
+        self.assertEqual(subprocess.check_output(["bash", "-c", command, "test", script],
+                                                 text=True, env=env).strip(), "unset CLAUDE_CONFIG_DIR")
+
+    def spawn(self, issue, agent, *extra):
+        return self.run_script("spawn", "--issue", str(issue), "--stage", "dev", "--agent", agent,
+                               "--prompt-file", str(self.prompt), "--skip-usage-gate", *extra)
+
+    def test_spawn_pretrusts_the_new_claude_worktree(self):
+        result = self.spawn(74, "claude")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.projects()[self.key("ktags-74-dev")], {"hasTrustDialogAccepted": True})
+        runner = (self.runs / "ktags-74-dev/run.sh").read_text()
+        self.assertIn(f"export CLAUDE_CONFIG_DIR={self.config_dir}", runner)
+
+    def test_spawn_aborts_when_trust_cannot_be_granted(self):
+        self.config.write_text("{not json")
+        result = self.spawn(74, "claude")
+        self.assertEqual(result.returncode, 20)
+        self.assertIn("cannot pre-trust", result.stderr)
+        self.assertIn("NOT started", result.stderr)
+        self.assertFalse((self.wt / "ktags-74-dev").exists())
+        self.assertIn("worktree remove", (self.state / "git.log").read_text())
+        self.assertFalse((self.state / "started").exists(), "nothing may be launched")
+        self.assertEqual(self.config.read_text(), "{not json")
+
+    def test_spawn_grants_nothing_for_codex_or_the_checkout(self):
+        before = self.config.read_text()
+        result = self.spawn(74, "codex")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("CLAUDE_CONFIG_DIR", (self.runs / "ktags-74-dev/run.sh").read_text())
+        (self.state / "killed").touch()
+        result = self.spawn(75, "claude", "--no-worktree")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.config.read_text(), before)
+        self.assertNotIn("CLAUDE_CONFIG_DIR", (self.runs / "ktags-75-dev/run.sh").read_text())
+
+    def make_run(self, key, agent):
+        run = self.runs / key
+        run.mkdir()
+        (run / "meta.json").write_text(json.dumps({"session": key, "agent": agent,
+                                                   "cwd": "/w/" + key, "started_epoch": 0}))
+        (self.state / "started").touch()
+        return run
+
+    def test_wait_reports_trust_screen_as_refused(self):
+        run = self.make_run("ktags-74-dev", "claude")
+        # The screen appears after the first poll; --interval 90 must not delay the report.
+        timer = threading.Timer(1.5, (self.state / "pane").write_text, args=(TRUST_SCREEN,))
+        timer.start()
+        result = self.run_script("wait", "ktags-74-dev", "--interval", "90", "--timeout", "30",
+                                 KTAGS_WAIT_STEP_MAX="1")
+        timer.join()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        outcome = json.loads(result.stdout)
+        self.assertEqual(outcome["outcome"], "result")
+        self.assertLessEqual(outcome["waited_seconds"], 6)
+        report = json.loads((run / "result.json").read_text())
+        self.assertEqual(report["status"], "refused")
+        self.assertIn("trust screen", report["summary"])
+        self.assertIn("/w/ktags-74-dev", report["summary"])
+        self.assertTrue((self.state / "killed").exists())
+
+    def test_wait_ignores_quoted_trust_text_and_other_agents(self):
+        footer = "\n⏵⏵ bypass permissions on (shift+tab to cycle)\n"
+        cases = (("ktags-74-dev", "claude", TRUST_SCREEN + footer),        # child quoting the screen
+                 ("ktags-75-dev", "claude", "   Yes, I trust this folder\n"),
+                 ("ktags-77-dev", "claude", " ❯ No, exit\n"),
+                 ("ktags-76-dev", "codex", TRUST_SCREEN))
+        for key, agent, pane in cases:
+            with self.subTest(key=key):
+                run = self.make_run(key, agent)
+                (self.state / "pane").write_text(pane)
+                result = self.run_script("wait", key, "--interval", "1", "--timeout", "2")
+                self.assertEqual(result.returncode, 62, result.stdout + result.stderr)
+                self.assertFalse((run / "result.json").exists())
+                self.assertFalse((self.state / "killed").exists())
+
+    def test_clean_revokes_trust_and_notes_a_failure(self):
+        for name in ("ktags-74-dev", "ktags-76-dev"):
+            (self.wt / name).mkdir()
+            (self.runs / name).mkdir()
+        self.assertEqual(self.trust("grant", "ktags-74-dev").returncode, 0)
+        result = self.run_script("clean", "--issue", "74", "--force", "--purge")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn(self.key("ktags-74-dev"), self.projects())
+        self.assertNotIn("not revoked", result.stderr)
+        self.config.write_text("{not json")
+        result = self.run_script("clean", "--issue", "76", "--force", "--purge")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Claude trust for ktags-76-dev not revoked", result.stderr)
+        self.assertFalse((self.wt / "ktags-76-dev").exists())
 
 
 class GuardInventoryContractTests(unittest.TestCase):

@@ -153,7 +153,9 @@ Codex hooks need explicit trust through `/hooks` in the CLI. Interactive session
 non-interactive profile that grants the active worktree, shared Git metadata, the current run state
 directory, GitHub, and required Go module services; denied operations fail instead of prompting.
 Coordinator-spawned Claude children run with `--dangerously-skip-permissions` in their own
-worktree; the shared PreToolUse hook still applies to them.
+worktree; the shared PreToolUse hook still applies to them. The runner pre-trusts exactly that
+new worktree path in Claude's global config (`projects[<path>].hasTrustDialogAccepted`) and
+`clean` revokes it; if the trust screen still appears, `wait` reports the child as `refused`.
 Runtime permission overrides win over project defaults. Hooks catch direct secret paths and
 prohibited commands; they are not a filesystem sandbox for arbitrary code execution.
 

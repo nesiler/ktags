@@ -12,6 +12,7 @@
 #                      [--no-worktree] [--skip-usage-gate] [--json]
 #   session.sh status  [key...] [--issue N] [--json]
 #   session.sh wait    <key> [--timeout s] [--interval 20]     (0 result · 61 dead · 62 timeout)
+#                      a Claude child at its workspace trust screen is reported as result `refused`
 #   session.sh verify  --issue N --stage dev|review [--json]   (0 done · 70 not done · 71 blocked)
 #   session.sh report  --status S [--summary ..] [--artifact ..] [--next ..]   (child calls this)
 #   session.sh logs    <key> [-n 60] | send <key> <text> | stop <key>
@@ -90,6 +91,78 @@ launch_command() {
       ;;
     *) die "unsupported provider" 10 ;;
   esac
+}
+
+# ── Claude workspace trust ───────────────────────────────────────────────────
+# Claude Code keys workspace trust on the canonical project root. For a git worktree that is the
+# main checkout, read from a cache that can still be cold at the first check; Claude then falls
+# back to the worktree's own path and shows its trust screen, whose default answer exits (#74).
+# The runner pre-trusts exactly the worktree it created, in the form the CLI names itself:
+# projects[<path>].hasTrustDialogAccepted in the global config, under Claude's own config lock.
+claude_config_file() { echo "${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json"; }
+
+# run.sh line that makes the child read the config the grant was written to.
+claude_config_pin() {
+  if [[ -n "${CLAUDE_CONFIG_DIR:-}" ]]; then echo "export CLAUDE_CONFIG_DIR=$(printf '%q' "$CLAUDE_CONFIG_DIR")"
+  else echo "unset CLAUDE_CONFIG_DIR"; fi
+}
+
+# claude_trust grant|revoke <session key>: the only path ever granted is <realpath $WT_ROOT>/<key>.
+claude_trust() {
+  local action="$1" name="$2" root key cfg lock tries=0 code=0
+  [[ "$name" =~ ^ktags-[0-9]+-(dev|review)(-r[0-9]+)?$ ]] || { echo "not a runner session key: $name" >&2; return 60; }
+  root="$(cd "$WT_ROOT" 2>/dev/null && pwd -P)" || { echo "worktree root missing: $WT_ROOT" >&2; return 60; }
+  [[ "$root" != / && "$root" != "$(cd "$HOME" && pwd -P)" ]] || { echo "worktree root is / or \$HOME: $root" >&2; return 60; }
+  key="$root/$name"
+  if [[ "$action" == grant ]]; then
+    [[ "$(cd "$key" 2>/dev/null && pwd -P)" == "$key" ]] || { echo "not a runner worktree: $key" >&2; return 60; }
+  fi
+  cfg="$(claude_config_file)"
+  lock="$cfg.lock"
+  [[ -d "$(dirname "$cfg")" ]] || { echo "Claude config directory missing: $(dirname "$cfg")" >&2; return 20; }
+  until mkdir "$lock" 2>/dev/null; do
+    tries=$((tries + 1))
+    [[ $tries -le "${KTAGS_CLAUDE_LOCK_TRIES:-50}" ]] || { echo "Claude config lock held: $lock" >&2; return 20; }
+    sleep 0.2
+  done
+  python3 - "$action" "$cfg" "$key" <<'PY' || code=$?
+import json, os, sys, tempfile
+action, path, key = sys.argv[1:]
+try:
+    with open(path, encoding="utf-8") as handle:
+        config = json.load(handle)
+except FileNotFoundError:
+    if action != "grant":
+        sys.exit(0)
+    config = {}
+except (OSError, ValueError) as error:
+    sys.exit(f"cannot read {path}: {type(error).__name__}")
+projects = config.get("projects", {}) if isinstance(config, dict) else None
+if not isinstance(projects, dict) or not isinstance(projects.get(key, {}), dict):
+    sys.exit(f"{path} is not a Claude config with a projects map")
+if action == "grant":
+    projects.setdefault(key, {})["hasTrustDialogAccepted"] = True
+else:
+    projects.pop(key, None)
+config["projects"] = projects
+target = os.path.realpath(path)
+mode = os.stat(target).st_mode & 0o777 if os.path.exists(target) else 0o600
+fd, tmp = tempfile.mkstemp(prefix=".claude.json.", dir=os.path.dirname(target))
+with os.fdopen(fd, "w", encoding="utf-8") as handle:
+    json.dump(config, handle, indent=2, ensure_ascii=False)
+os.chmod(tmp, mode)
+os.replace(tmp, target)
+PY
+  rmdir "$lock" 2>/dev/null || true
+  return $code
+}
+
+# The trust screen: both answers visible and no bypass-permissions footer, which every runner
+# Claude child shows once it is past the screen (a child quoting the screen keeps its footer).
+trust_screen_shown() {
+  local pane
+  pane="$(tmux capture-pane -p -t "${1}:" 2>/dev/null || true)"
+  [[ "$pane" == *"Yes, I trust this folder"* && "$pane" == *"No, exit"* && "$pane" != *"bypass permissions"* ]]
 }
 
 # key: ktags-<issue>-<stage>[-r<N>]   remote-control name: #<issue>-<Stage>[-rN]
@@ -270,6 +343,16 @@ cmd_spawn() {
     fi
   fi
 
+  local config_pin=""
+  if [[ "$agent" == claude && "$use_worktree" == 1 ]]; then
+    local trust_error
+    if ! trust_error="$(claude_trust grant "$key" 2>&1)"; then
+      git -C "$ROOT" worktree remove --force "$workdir" 2>/dev/null || true
+      die "cannot pre-trust $workdir for Claude: $trust_error — '$key' NOT started" 20
+    fi
+    config_pin="$(claude_config_pin)"
+  fi
+
   mkdir -p "$dir"
   cp "$prompt_file" "$dir/prompt.md"
   : >"$dir/pane.log"
@@ -289,6 +372,7 @@ export KTAGS_RUN_DIR=$(printf '%q' "$RUN_ROOT")
 export KTAGS_SESSION=$(printf '%q' "$key")
 export KTAGS_ROOT=$(printf '%q' "$ROOT")
 export KTAGS_CONTEXT_ROOT=$(printf '%q' "$ROOT")
+$config_pin
 set +e
 $launch \\
   "\$(cat $(printf '%q' "$dir/prompt.md"))"
@@ -373,9 +457,12 @@ cmd_wait() {
   done
   [[ -n "$key" ]] || die "usage: session.sh wait <key> [--timeout s] [--interval s]"
   need jq
-  local dir started outcome=""
+  local dir started outcome="" agent step="$interval" step_max="${KTAGS_WAIT_STEP_MAX:-15}"
   dir="$(run_dir "$key")"
   [[ -d "$dir" ]] || die "unknown session: $key"
+  agent="$(jq -r '.agent // empty' "$dir/meta.json" 2>/dev/null || true)"
+  # A trust screen must be reported within 60 s whatever --interval the caller chose.
+  [[ "$step" -le "$step_max" ]] || step="$step_max"
   started="$(epoch)"
   while :; do
     if [[ -f "$dir/result.json" ]]; then outcome="result"; break; fi
@@ -384,8 +471,14 @@ cmd_wait() {
       if [[ -f "$dir/result.json" ]]; then outcome="result"; else outcome="dead_no_result"; fi
       break
     fi
+    if [[ "$agent" == claude ]] && trust_screen_shown "$key"; then
+      cmd_report --session "$key" --status refused \
+        --summary "Claude stopped at its workspace trust screen in $(jq -r .cwd "$dir/meta.json"); no key was sent (#74)" >/dev/null
+      tmux kill-session -t "=$key" 2>/dev/null || true
+      outcome="result"; break
+    fi
     if [[ "$timeout" -gt 0 && $(($(epoch) - started)) -ge "$timeout" ]]; then outcome="timeout"; break; fi
-    sleep "$interval"
+    sleep "$step"
   done
   local result=null
   [[ -f "$dir/result.json" ]] && result="$(jq -c . "$dir/result.json" 2>/dev/null || echo '{"malformed":true}')"
@@ -548,6 +641,8 @@ cmd_clean() {
   mkdir -p "$archive"
   for k in $keys; do
     tmux kill-session -t "=$k" 2>/dev/null || true
+    claude_trust revoke "$k" >/dev/null 2>&1 \
+      || echo "note  Claude trust for $k not revoked; remove projects[\"$WT_ROOT/$k\"] from $(claude_config_file)" >&2
     if [[ -d "$WT_ROOT/$k" ]]; then git -C "$ROOT" worktree remove --force "$WT_ROOT/$k" 2>/dev/null || rm -rf "$WT_ROOT/$k"; fi
     if [[ "$purge" == 1 ]]; then rm -rf "$(run_dir "$k")"; else mv "$(run_dir "$k")" "$archive/$stamp-$k"; fi
     cleaned="$cleaned $k"
@@ -560,7 +655,7 @@ cmd_clean() {
   fi
 }
 
-usage() { sed -n '2,22p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,23p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 
 main() {
   local cmd="${1:-}"; shift || true
