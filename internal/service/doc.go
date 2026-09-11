@@ -12,5 +12,10 @@
 // protocol_mismatch error that says which side to upgrade; the error envelope
 // {"protocol":N,"error":{"code","message","hint"}} is frozen across versions so that any client
 // can read it. run.events streams "event" messages and ends with one "run" message holding the
-// final state.
+// final state. service.stop is refused while runs are active unless it asks to cancel them.
+//
+// Lifecycle: start is idempotent, status reports PID, protocol and socket, and stop goes through
+// service.stop. A Launcher starts the service process; on macOS that is the launchd package, a
+// user launchd agent. The service also runs the scheduled actions, and a slot missed while the
+// laptop slept is reported, not run.
 package service

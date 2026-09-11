@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"sort"
+	"strings"
 	"sync"
 
 	"github.com/nesiler/ktags/internal/actions"
@@ -20,6 +21,7 @@ import (
 var (
 	errCancelled = errors.New("cancelled by the operator")
 	errStopping  = errors.New("cancelled because the ktags service stopped")
+	errStopRun   = errors.New("cancelled because the operator stopped the ktags service")
 )
 
 // manager owns the runs. Runs execute on the manager's context, never on a connection's, so a
@@ -74,35 +76,114 @@ func (m *manager) close() {
 }
 
 func (m *manager) start(req Request) (RunInfo, error) {
+	info, _, err := m.startRun(req)
+	return info, err
+}
+
+// startRun starts a run and also returns its handle, so the scheduler can wait for its end.
+func (m *manager) startRun(req Request) (RunInfo, *activeRun, error) {
 	if req.Target == nil {
-		return RunInfo{}, &Error{Code: CodeInvalid, Message: "run.start needs a target", Hint: `send "target":{"kind":"global"} or a customer target`}
+		return RunInfo{}, nil, &Error{Code: CodeInvalid, Message: "run.start needs a target", Hint: `send "target":{"kind":"global"} or a customer target`}
 	}
 	target := req.Target.actions()
 	args, err := m.decodeArgs(req.Action, req.Args)
 	if err != nil {
-		return RunInfo{}, err
+		return RunInfo{}, nil, err
 	}
 	actionReq := actions.Request{Target: target, Args: args}
 	// Refused requests never create a run directory.
 	if err := m.registry.Validate(req.Action, actionReq); err != nil {
-		return RunInfo{}, err
+		return RunInfo{}, nil, err
 	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.closed {
-		return RunInfo{}, &Error{Code: CodeUnavailable, Message: "the ktags service is stopping", Hint: "start the ktags service again, then retry"}
+		return RunInfo{}, nil, &Error{Code: CodeUnavailable, Message: "the ktags service is stopping", Hint: "start the ktags service again, then retry"}
 	}
 	rec, err := m.store.Start(m.ctx, req.Action, target)
 	if err != nil {
-		return RunInfo{}, err
+		return RunInfo{}, nil, err
 	}
 	runCtx, cancel := context.WithCancelCause(m.ctx)
 	a := &activeRun{rec: rec, cancel: cancel, done: make(chan struct{})}
 	m.active[rec.Meta().ID] = a
 	m.wg.Add(1)
 	go m.execute(runCtx, a, req.Action, actionReq)
-	return runInfo(run.Run{Meta: rec.Meta(), Status: run.StatusRunning}), nil
+	return runInfo(run.Run{Meta: rec.Meta(), Status: run.StatusRunning}), a, nil
+}
+
+// runScheduled starts one scheduled run and waits for its end. A run that did not succeed is an
+// error, so the schedule records it.
+func (m *manager) runScheduled(ctx context.Context, req Request) error {
+	info, a, err := m.startRun(req)
+	if err != nil {
+		return err
+	}
+	select {
+	case <-a.done:
+	case <-ctx.Done():
+		// The schedule is stopping; the run itself is cancelled by the manager's close.
+		return ctx.Err()
+	}
+	// A result that could not be written leaves the run unfinished, which is not a success.
+	final, err := m.status(ctx, info.ID)
+	if err != nil {
+		return err
+	}
+	if final.Status != string(run.StatusSucceeded) {
+		summary := final.Status
+		if final.Result != nil {
+			summary += ": " + final.Result.Summary
+		}
+		return fmt.Errorf("run %s %s", info.ID, summary)
+	}
+	return nil
+}
+
+func (m *manager) activeCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.active)
+}
+
+// drain prepares an operator's stop. With active runs and without cancelRuns it refuses and
+// changes nothing. Otherwise it refuses new runs, cancels the active ones and waits until each
+// has written its result. The check and the refusal of new runs are one critical section, so a
+// run cannot start between them. It returns the IDs of the cancelled runs, sorted.
+func (m *manager) drain(cancelRuns bool) ([]string, error) {
+	m.mu.Lock()
+	if m.closed {
+		m.mu.Unlock()
+		return nil, &Error{Code: CodeUnavailable, Message: "the ktags service is already stopping", Hint: "wait until it has stopped, then check with the service status"}
+	}
+	ids := make([]string, 0, len(m.active))
+	for id := range m.active {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	if len(ids) > 0 && !cancelRuns {
+		m.mu.Unlock()
+		return nil, &Error{
+			Code:    CodeConflict,
+			Message: fmt.Sprintf("the ktags service has %d active run(s): %s", len(ids), strings.Join(ids, ", ")),
+			Hint:    "wait for the runs to end, or stop with --cancel-runs to cancel them",
+		}
+	}
+	m.closed = true
+	done := make([]chan struct{}, 0, len(ids))
+	for _, id := range ids {
+		a := m.active[id]
+		a.cancel(errStopRun)
+		done = append(done, a.done)
+	}
+	m.mu.Unlock()
+	// The wait is not bound to the requesting connection: once decided, the stop completes
+	// even if that client goes away.
+	for _, ch := range done {
+		<-ch
+	}
+	return ids, nil
 }
 
 // decodeArgs converts wire arguments to the Go kinds the action declares. Names the action does

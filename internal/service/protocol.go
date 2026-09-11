@@ -28,6 +28,9 @@ const (
 	OpStatus    = "run.status"
 	OpRuns      = "run.list"
 	OpEvents    = "run.events"
+	// OpStop asks the service to stop. It is refused while runs are active unless the request
+	// sets cancel_runs; the reply lists the runs that were cancelled.
+	OpStop = "service.stop"
 )
 
 // Error codes.
@@ -83,6 +86,8 @@ type Request struct {
 	Args     map[string]json.RawMessage `json:"args,omitempty"`
 	After    uint64                     `json:"after,omitempty"`
 	Follow   bool                       `json:"follow,omitempty"`
+	// CancelRuns lets service.stop cancel the active runs instead of refusing.
+	CancelRuns bool `json:"cancel_runs,omitempty"`
 }
 
 // Response is one reply line. Exactly one of the payload fields is set.
@@ -102,6 +107,8 @@ type Hello struct {
 	Service string `json:"service"`
 	Version string `json:"version"`
 	PID     int    `json:"pid"`
+	// ActiveRuns counts the runs executing in the service.
+	ActiveRuns int `json:"active_runs"`
 }
 
 // Target is what a run operates on.

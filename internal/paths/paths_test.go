@@ -391,3 +391,32 @@ func assertPrivate(t *testing.T, roots paths.Roots) {
 		}
 	}
 }
+
+// Overrides pins the roots: resolving with only those assignments returns the same roots, even
+// when they came from XDG and HOME.
+func TestOverridesReproduceTheRoots(t *testing.T) {
+	roots, err := paths.Resolve(env(map[string]string{"XDG_STATE_HOME": "/var/xdg-state"}, macHome))
+	if err != nil {
+		t.Fatal(err)
+	}
+	vars := map[string]string{}
+	for _, assignment := range roots.Overrides() {
+		key, value, ok := strings.Cut(assignment, "=")
+		if !ok || !strings.HasPrefix(key, "KTAGS_") {
+			t.Fatalf("assignment %q is not KTAGS_*=path", assignment)
+		}
+		vars[key] = value
+	}
+	if len(vars) != 4 {
+		t.Fatalf("overrides %v, want one per root", roots.Overrides())
+	}
+	again, err := paths.Resolve(env(vars, ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, root := range again.All() {
+		if root.Path != roots.All()[i].Path {
+			t.Fatalf("%s root %q, want %q", root.Name, root.Path, roots.All()[i].Path)
+		}
+	}
+}

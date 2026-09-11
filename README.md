@@ -7,6 +7,11 @@ Agents start with `AGENTS.md`. Shared rules live in `docs/workflow.md` and `docs
 accepted decisions go in `docs/adr/`. Work is defined by maintainer-approved GitHub issues.
 Personal plans, research, drafts and session notes stay local and are intentionally unpublished.
 
+Local service (ADR-0001): `ktags service start|status|stop|run`. `start` does nothing when the
+service already runs (macOS: a user launchd agent). `stop` refuses with exit 2 while runs are
+active; `stop --cancel-runs` cancels them and records their results. Closing a terminal only
+detaches. Checks missed while the laptop slept are reported as missed, never run late.
+
 Development: Go 1.27, `make hooks` once per clone, `make check` before publication.
 Temporary scripts belong in `scripts/local/`; private scratch material in `local/`.
 Never force-add ignored files. Git hooks check publication paths and known secret signatures.
