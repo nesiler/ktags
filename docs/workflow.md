@@ -97,6 +97,13 @@ It passes its provider explicitly on every spawn; the runner refuses an ambiguou
 - **Claim = evidence.** `file:line`, a command and its output, or a test name. "Done" alone is
   not done.
 - **Gates run live.** `make check` output is pasted from this run, not an earlier one.
+- **Guard inventory.** Before the PR is marked ready, it lists every new or changed refusal,
+  validation, exclusivity or error branch in the diff, each with a break-see-red line or a
+  checkable `not a guard, because …`. The review compares the list with the diff, and a
+  missing guard is High. Cause (#35): reviews of PR #32 and PR #34 found guards without tests
+  (`strictInt` sign refusal, exclusive run directory, meta ID check, and five more in round 2),
+  and each cost a fix round. Round 3 of #34 then found one false "not a guard" reason and one
+  missing row.
 - **Green is not proof.** A guard test must be shown to fail when the guarded behaviour is
   broken (break → red → restore → green). Record the break in one line.
 - **Not done and why** is mandatory in every PR: out of scope by decision, blocked by

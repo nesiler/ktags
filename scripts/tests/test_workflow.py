@@ -340,5 +340,90 @@ if args[:2]==["pr","checks"] and os.environ.get("FAKE_CI")=="FAILURE":
                 self.assertEqual(data["verdict"], "accept")
 
 
+class GuardInventoryContractTests(unittest.TestCase):
+    """#35: the guard inventory must stay in the task skill, the template and the review."""
+
+    def text(self, path):
+        # Rules wrap across lines; compare with whitespace collapsed.
+        return " ".join((ROOT / path).read_text().split())
+
+    def test_task_skill_requires_inventory_before_ready(self):
+        text = self.text(".agents/skills/task/SKILL.md")
+        self.assertIn(
+            "**Guard inventory.** Before `gh pr ready`, walk `git diff origin/main...HEAD` hunk by "
+            "hunk and list **every** new or changed refusal, validation, exclusivity (`O_EXCL`, "
+            "`Mkdir` instead of `MkdirAll`, locks, \"at most one\") or error branch.", text)
+        self.assertIn("That covers the guard the issue names and every guard you added along the way.", text)
+        self.assertIn(
+            "Each row in the PR's `Guard inventory` table carries either a break-see-red line "
+            "or `not a guard, because …`.", text)
+        self.assertIn(
+            "Do not say \"ready\" or \"done\" when any of these holds: a criterion has no "
+            "evidence; `make check` was not run in this session; a guard has no break-see-red "
+            "line; the PR lacks a complete guard inventory (§6); the PR lacks the not-done "
+            "section; the tree has uncommitted changes.", text)
+
+    def test_task_skill_requires_a_checkable_reason(self):
+        text = self.text(".agents/skills/task/SKILL.md")
+        self.assertIn(
+            "The reason must be one the reviewer can check against the code: \"unreachable\" "
+            "names the caller that prevents it, and \"pure passthrough\" names the tested caller.",
+            text)
+        self.assertIn("A reason that turns out to be false counts as a missing guard.", text)
+
+    def test_task_skill_gates_ready_on_the_inventory(self):
+        text = self.text(".agents/skills/task/SKILL.md")
+        self.assertIn(
+            "When evidence is complete, including a guard inventory that covers the whole diff "
+            "(§6): `gh pr ready`", text)
+        self.assertIn(
+            "The PR body follows `.github/PULL_REQUEST_TEMPLATE.md`: criteria matrix with "
+            "evidence, risk → test table, gate output, the guard inventory, **not done and "
+            "why**, and `Closes #$1`.", text)
+
+    def test_template_has_inventory_table(self):
+        text = self.text(".github/PULL_REQUEST_TEMPLATE.md")
+        self.assertIn("## Guard inventory", text)
+        self.assertIn(
+            "Every new or changed refusal, validation, exclusivity or error branch in the diff, "
+            "not only the one the issue names. One row each; nothing in the diff is left out.", text)
+        self.assertIn("Break-see-red, or `not a guard, because …`", text)
+
+    def test_review_checks_inventory_against_diff(self):
+        text = self.text(".agents/skills/review/SKILL.md")
+        self.assertIn("## 5. Check the guard inventory against the diff", text)
+        self.assertIn(
+            "Walk the diff yourself and list every new or changed refusal, validation, "
+            "exclusivity or error branch before you read the PR's `Guard inventory` table.", text)
+        self.assertIn("A guard in the diff with no row in the table is a **High** finding.", text)
+
+    def test_review_makes_a_row_without_evidence_high(self):
+        self.assertIn(
+            "A row without a break-see-red line or a `not a guard, because …` reason is a "
+            "**High** finding.", self.text(".agents/skills/review/SKILL.md"))
+
+    def test_review_makes_a_false_reason_high(self):
+        self.assertIn(
+            "Check at least one `not a guard` reason against the code. A reason that is false "
+            "(for example, the branch is reachable) is a **High** finding.",
+            self.text(".agents/skills/review/SKILL.md"))
+
+    def test_workflow_states_the_rule(self):
+        text = self.text("docs/workflow.md")
+        self.assertIn(
+            "**Guard inventory.** Before the PR is marked ready, it lists every new or changed "
+            "refusal, validation, exclusivity or error branch in the diff, each with a "
+            "break-see-red line or a checkable `not a guard, because …`.", text)
+        self.assertIn("The review compares the list with the diff, and a missing guard is High.", text)
+
+    def test_workflow_names_the_cause(self):
+        text = self.text("docs/workflow.md")
+        self.assertIn(
+            "Cause (#35): reviews of PR #32 and PR #34 found guards without tests (`strictInt` "
+            "sign refusal, exclusive run directory, meta ID check, and five more in round 2), and "
+            "each cost a fix round.", text)
+        self.assertIn("Round 3 of #34 then found one false \"not a guard\" reason and one missing row.", text)
+
+
 if __name__ == "__main__":
     unittest.main()

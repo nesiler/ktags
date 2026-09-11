@@ -71,7 +71,17 @@ make check
 
 Do not trust the numbers pasted in the PR; record your own. A mismatch is a finding.
 
-## 5. Try to break a guard
+## 5. Check the guard inventory against the diff
+
+Walk the diff yourself and list every new or changed refusal, validation, exclusivity or error
+branch before you read the PR's `Guard inventory` table. Then compare the two lists:
+
+- A guard in the diff with no row in the table is a **High** finding.
+- A row without a break-see-red line or a `not a guard, because …` reason is a **High** finding.
+- Check at least one `not a guard` reason against the code. A reason that is false (for
+  example, the branch is reachable) is a **High** finding.
+
+## 6. Try to break a guard
 
 Pick at least one new or changed guard, validator or safety check. Prefer a different mutation
 from the implementation evidence. If there is no such guard, record not applicable and why.
@@ -83,14 +93,14 @@ test does not protect the behaviour. Confirm the tree is clean afterwards:
 git status --porcelain     # must be empty
 ```
 
-## 6. Check the not-done section and scope
+## 7. Check the not-done section and scope
 
 - Every "not done" row has a reason and, if moved, an issue number that really contains it
   (`gh issue view <M>`).
 - Nothing in the diff is outside the issue's scope, except regressions the change caused.
 - No secrets, real hostnames, customer names, or attribution strings in the diff or the PR.
 
-## 7. Findings
+## 8. Findings
 
 Each finding uses the three-block form with a severity tag in the title:
 
@@ -104,7 +114,7 @@ Each finding uses the three-block form with a severity tag in the title:
 Severity: `Blocker` (wrong or unsafe behaviour, secret, data loss), `High` (criterion unmet or
 unprotected), `Medium` (works but fragile or unclear), `Low` (style, naming, docs).
 
-## 8. Verdict
+## 9. Verdict
 
 - `ACCEPT` — no Blocker/High findings, all criteria evidenced, gates green here.
 - `REJECT` — otherwise; move the issue back to `stage:dev` after publishing the findings.

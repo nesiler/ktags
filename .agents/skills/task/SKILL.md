@@ -95,6 +95,14 @@ covers it, ask the maintainer before implementation. Do not silently choose.
 - `make check` green. Paste the tail of the output into the PR.
 - New or changed guard/validator: break the code, run the test, see red, restore, see green.
   Record it in the PR as one line per guard: `broke X in file:line → test Y red → restored`.
+- **Guard inventory.** Before `gh pr ready`, walk `git diff origin/main...HEAD` hunk by hunk
+  and list **every** new or changed refusal, validation, exclusivity (`O_EXCL`, `Mkdir`
+  instead of `MkdirAll`, locks, "at most one") or error branch. That covers the guard the
+  issue names and every guard you added along the way. Each row in the PR's `Guard inventory`
+  table carries either a break-see-red line or `not a guard, because …`. The reason must
+  be one the reviewer can check against the code: "unreachable" names the caller that
+  prevents it, and "pure passthrough" names the tested caller. A reason that turns out to be
+  false counts as a missing guard.
 
 ## 7. Commit and open the PR
 
@@ -113,7 +121,7 @@ gh issue edit $1 --remove-label stage:dev --add-label stage:test
 ```
 
 The PR body follows `.github/PULL_REQUEST_TEMPLATE.md`: criteria matrix with evidence, risk →
-test table, gate output, break-see-red lines, **not done and why**, and `Closes #$1`.
+test table, gate output, the guard inventory, **not done and why**, and `Closes #$1`.
 
 ## 8. stage:test — acceptance evidence
 
@@ -121,14 +129,16 @@ test table, gate output, break-see-red lines, **not done and why**, and `Closes 
 - If the change touches real machines or SSH targets, write the exact commands the maintainer
   should run into a PR comment titled `Acceptance run` and stop. The maintainer runs them and
   pastes the output. You never run them.
-- When evidence is complete: `gh pr ready` and
+- When evidence is complete, including a guard inventory that covers the whole diff (§6):
+  `gh pr ready` and
   `gh issue edit $1 --remove-label stage:test --add-label stage:review`.
 
 ## Stop conditions
 
 Do not say "ready" or "done" when any of these holds: a criterion has no evidence; `make check`
-was not run in this session; a guard has no break-see-red line; the PR lacks the not-done
-section; the tree has uncommitted changes.
+was not run in this session; a guard has no break-see-red line;
+the PR lacks a complete guard inventory (§6); the PR lacks the not-done section; the tree has
+uncommitted changes.
 
 ## Never in this session
 
