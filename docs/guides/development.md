@@ -64,8 +64,9 @@ directories itself with the right mode and refuses to run on a directory with lo
   text on stderr), `--no-color`, `-v` (Ansible verbosity 1–2; `-vvv` and `ANSIBLE_DEBUG` are
   deliberately unavailable because they defeat `no_log`).
 - Exit codes are a contract: `0` success · `1` usage, validation or environment · `2` confirmation
-  refused or customer locked · `3` playbook or remote step failed · `4` a check ran and is red
-  (health, doctor, verify). Scripts may rely on them.
+  refused, customer locked, or a service `conflict` (the request does not fit the service's state:
+  stop with active runs, cancel of a finished run) · `3` playbook or remote step failed · `4` a
+  check ran and is red (health, doctor, verify). Scripts may rely on them.
 - Read-only commands (`list`, `info`, `health`, `doctor`, `secret show`) never take the lock and
   never ask for confirmation.
 - Output: one summary line first, details after; tables for lists; no ANSI when not a TTY.

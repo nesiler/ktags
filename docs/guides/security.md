@@ -36,7 +36,9 @@ their results with `"censored"`. A test proves the mask on each pattern.
   hardware-backed plugin identity); ktags never copies an identity anywhere.
 - The **operator roster** is the one list of operators: each operator's name, SSH public key (§3)
   and age recipient. It lives in the config dir (`development.md §2`) and is exported with the
-  customer (`ansible.md §7`). Older text calls it the team file.
+  customer (`ansible.md §7`). The export below carries the customer directory; how the roster
+  travels with it (the whole roster or only that customer's recipients) is set by the roster
+  decision that ADR-0004 names, not by this guide. Older text calls it the team file.
 - Decrypted values live in memory for the duration of the run. If Ansible needs them, they are
   passed as an extra-vars file read from a pipe inherited by the child (ADR-0004), which leaves
   no plain-text file behind. Never `-e key=value`, never `$ENV`.
@@ -74,8 +76,9 @@ their results with `"censored"`. A test proves the mask on each pattern.
 - Every subprocess runs in its own process group; cancellation kills the group; timeouts are
   explicit.
 - The k9s bridge: kubeconfig fetched over SSH into a `0600` temp file under the state dir, a local
-  tunnel to the API server, `k9s` launched with that file, and on exit the tunnel closed and the file
-  shredded. The audit log records start and end. The kubeconfig is never cached across sessions.
+  tunnel to the API server, `k9s` launched with that file, and on exit the tunnel closed and the
+  file shredded. The audit log records start and end. The kubeconfig is never cached across
+  sessions.
 - Downloaded artefacts (RKE2, Helm, charts, Tailscale packages, ansible-core) are pinned by version
   and sha256; nothing is fetched without a checksum, nothing is piped into a shell.
 
@@ -105,9 +108,9 @@ their results with `"censored"`. A test proves the mask on each pattern.
 
 ## 7. Leavers and rotation
 
-- Removing an operator from the operator roster and running access on every customer they held removes
-  their SSH key from all nodes. The same action lists what else must be rotated because the leaver
-  could have read it: RKE2 join token, Rancher admin password and API tokens, S3 backup
+- Removing an operator from the operator roster and running access on every customer they held
+  removes their SSH key from all nodes. The same action lists what else must be rotated because
+  the leaver could have read it: RKE2 join token, Rancher admin password and API tokens, S3 backup
   credentials, Tailscale auth keys — each with the command that rotates it.
 - Secrets stores are re-encrypted to the remaining recipients as part of the same action.
 - A `doctor` check warns when an operator's key is present on a node but absent from the roster,

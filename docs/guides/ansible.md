@@ -122,7 +122,7 @@ never deleted by a playbook; retention is a ktags job. Locks live in the state d
 | `ops_*` variable prefix | `ktags_*` |
 | `result.json` in `/srv/ops/status/<c>/runs/` | `<state>/runs/<customer>/<run_id>/result.json` |
 | bastion user = audit `user` | operator name from the operator roster (`security.md §2`), verified against the age identity |
-| `team/members.yml` in the platform repo | operator roster in the config dir, exported with the customer |
+| `team/members.yml` in the platform repo | operator roster in the config dir, exported with the customer (how: `security.md §2`) |
 | sops vars plugin | age store decrypted by the service, handed over through an inherited pipe (ADR-0004) |
 | `access.yml` handles tailscale join | tailscale/jump is a **consented** secondary door, separate playbook |
 | Backup: peer only | peer auto + scheduled on node + optional encrypted local copy |
