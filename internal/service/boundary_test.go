@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -49,6 +50,26 @@ func TestLockReleasedOnClose(t *testing.T) {
 		if err := s.Close(); err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+// #69-K1, #69-K2: the chmod hint for a loose runtime root is POSIX-quoted, so pasting it into a
+// shell restricts exactly that directory even when its path holds $, a backtick or a quote.
+func TestListenChmodHintIsShellQuoted(t *testing.T) {
+	f := newFixture(t, setup{})
+	runtime := mkdir(t, shortDir(t), "it's $HOME `x`")
+	chmod(t, runtime, 0o750)
+	_, err := Listen(context.Background(), runtime, f.options())
+	pe := wantCode(t, err, CodeUnavailable)
+	if want := "chmod 700 '" + strings.ReplaceAll(runtime, "'", `'\''`) + "'"; pe.Hint != want {
+		t.Fatalf("hint %q, want %q", pe.Hint, want)
+	}
+	if out, err := exec.Command("/bin/sh", "-c", pe.Hint).CombinedOutput(); err != nil {
+		t.Fatalf("pasting %q into sh: %v: %s", pe.Hint, err, out)
+	}
+	info, err := os.Stat(runtime)
+	if err != nil || info.Mode().Perm() != 0o700 {
+		t.Fatalf("after the hint: %v %v, want mode 0700", info, err)
 	}
 }
 
