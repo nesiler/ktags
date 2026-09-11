@@ -364,12 +364,17 @@ func TestStatusReportsStaleAgent(t *testing.T) {
 			if _, _, err := lc.Start(ctx); err != nil {
 				t.Fatal(err)
 			}
+			// #71-K2: a failed comparison is reported, never dropped.
+			wantErr := ""
+			if tc.l.err != nil {
+				wantErr = tc.l.err.Error()
+			}
 			st, err := lc.Status(ctx)
-			if err != nil || st.StaleAgent != (tc.want && tc.l.err == nil) {
-				t.Fatalf("status %+v, %v; want stale agent %v", st, err, tc.want && tc.l.err == nil)
+			if err != nil || st.StaleAgent != (tc.want && tc.l.err == nil) || st.StaleAgentErr != wantErr {
+				t.Fatalf("status %+v, %v; want stale agent %v, error %q", st, err, tc.want && tc.l.err == nil, wantErr)
 			}
 			st, started, err := lc.Start(ctx)
-			if err != nil || started || st.StaleAgent != (tc.want && tc.l.err == nil) || tc.l.launches != 1 {
+			if err != nil || started || st.StaleAgent != (tc.want && tc.l.err == nil) || st.StaleAgentErr != wantErr || tc.l.launches != 1 {
 				t.Fatalf("second start %+v started %v, %v, %d launches", st, started, err, tc.l.launches)
 			}
 		})

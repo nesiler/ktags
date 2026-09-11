@@ -40,6 +40,8 @@ type serviceDoc struct {
 	Version    string `json:"version,omitempty"`
 	ActiveRuns int    `json:"active_runs"`
 	StaleAgent bool   `json:"stale_agent,omitempty"`
+	// StaleAgentErr is why the agent definition could not be compared.
+	StaleAgentErr string `json:"stale_agent_error,omitempty"`
 }
 
 type startDoc struct {
@@ -53,7 +55,7 @@ type stopDoc struct {
 }
 
 func toServiceDoc(st service.Status) serviceDoc {
-	return serviceDoc{Running: st.Running, Socket: st.Socket, Protocol: st.Protocol, PID: st.PID, Service: st.Service, Version: st.Version, ActiveRuns: st.ActiveRuns, StaleAgent: st.StaleAgent}
+	return serviceDoc{Running: st.Running, Socket: st.Socket, Protocol: st.Protocol, PID: st.PID, Service: st.Service, Version: st.Version, ActiveRuns: st.ActiveRuns, StaleAgent: st.StaleAgent, StaleAgentErr: st.StaleAgentErr}
 }
 
 func (e *env) serviceCmd() *cobra.Command {
@@ -170,5 +172,8 @@ func details(w io.Writer, st service.Status) {
 	_, _ = fmt.Fprintf(w, "  version   %s\n  protocol  %d\n  socket    %s\n  runs      %d active\n", st.Version, st.Protocol, st.Socket, st.ActiveRuns)
 	if st.StaleAgent {
 		_, _ = fmt.Fprintf(w, "  agent     stale agent definition: the service runs the definition it was started with\n  next: %s\n", service.StaleFix)
+	}
+	if st.StaleAgentErr != "" {
+		_, _ = fmt.Fprintf(w, "  agent     cannot compare the agent definition with this build's: %s\n  next: ktags doctor\n", st.StaleAgentErr)
 	}
 }

@@ -737,20 +737,53 @@ func TestOverlappingRunDoesNotRestartCheck(t *testing.T) {
 
 // #68-K1 D1: a fresh view never carries a missed count, even when slots were missed after
 // the cached result started (a measurement that outlived them).
+// #71-K1: driven through a slow scheduled run, not by setting the baseline. With a 15m interval
+// and 1m grace, the second slot starts 30s late and its run outlives the grace of the third
+// slot, which the schedule counts as missed after the run's baseline. The run's result is still
+// fresh (15m45s after it started), so its view shows no missed count while the catch-up runs.
 func TestFreshViewShowsNoMissed(t *testing.T) {
+	held := make(chan int, 2)
+	release := make(chan struct{})
+	var runs atomic.Int32
 	clock := newFakeClock()
-	e := newEngine(t, clock, Options{Customers: []string{"acme"}, Checks: []Check{{Name: "ssh", Severity: SeverityCritical, Run: ok}}})
-	if _, err := e.Run(context.Background(), "acme"); err != nil {
-		t.Fatal(err)
-	}
-	e.mu.Lock()
-	e.missedBase["acme"] = -3 // stands for three slots missed after the cached result started
-	e.mu.Unlock()
+	e := newEngine(t, clock, Options{Customers: []string{"acme"}, Checks: []Check{{Name: "ssh", Severity: SeverityCritical, Timeout: 24 * time.Hour, Run: func(ctx context.Context, _ string) error {
+		// The first slot's run returns at once; the slow run and the catch-up wait.
+		if n := runs.Add(1); n > 1 {
+			held <- int(n)
+			select {
+			case <-release:
+			case <-ctx.Done():
+			}
+		}
+		return nil
+	}}}})
 	start(t, e)
-	clock.idle(t, 2)
-	if v := view(t, e, "acme"); v.Stale || v.Missed != 0 {
+	clock.idle(t, 2) // the first slot's check timeout, then the schedule's next wait
+	clock.Advance(15*time.Minute + 30*time.Second)
+	if n := <-held; n != 2 {
+		t.Fatalf("held run %d, want the slow second run", n)
+	}
+	clock.idle(t, 1) // its check timeout
+	clock.Advance(15*time.Minute + 45*time.Second)
+	release <- struct{}{} // ends the slow run only
+	if n := <-held; n != 3 {
+		t.Fatalf("held run %d, want the catch-up", n)
+	}
+	var missed int
+	for _, st := range e.sched.States() {
+		missed += st.Missed
+	}
+	if missed != 1 {
+		t.Fatalf("schedule counts %d missed slots, want the one the slow run outlived", missed)
+	}
+	v := view(t, e, "acme")
+	if !v.MeasuredAt.Equal(t0.Add(15*time.Minute+30*time.Second)) || v.Trigger != TriggerScheduled {
+		t.Fatalf("cached %+v, want the slow run's result", v)
+	}
+	if v.Stale || v.Missed != 0 || !v.MissedFrom.IsZero() {
 		t.Fatalf("fresh view %+v, want no missed count", v)
 	}
+	close(release)
 }
 
 // #15-K1 partial fleet, #15-K3: customers outside a run, or cut short in it, stay unknown and

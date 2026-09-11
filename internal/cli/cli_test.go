@@ -241,6 +241,38 @@ var running = service.Status{Running: true, Socket: "/tmp/kt/runtime/service.soc
 
 var staleRunning = func() service.Status { st := running; st.StaleAgent = true; return st }()
 
+var uncomparedRunning = func() service.Status {
+	st := running
+	st.StaleAgentErr = "open /Users/op/Library/LaunchAgents/ktags.plist: permission denied"
+	return st
+}()
+
+// #71-K2: a definition that cannot be compared is named with its cause and doctor as the next
+// step, in both outputs; a current or stale agent prints no such line.
+func TestServiceUncomparedAgentOutput(t *testing.T) {
+	for _, tc := range []struct {
+		st   service.Status
+		want bool
+	}{{running, false}, {staleRunning, false}, {uncomparedRunning, true}} {
+		control := fakeControl{status: tc.st}
+		_, stdout, _ := runCLI(fakeRuntime{control: &control}, "service", "status")
+		line := "cannot compare the agent definition with this build's: " + uncomparedRunning.StaleAgentErr + "\n  next: ktags doctor"
+		if got := strings.Contains(stdout, line); got != tc.want {
+			t.Fatalf("%+v: human output names the comparison error: %v\n%s", tc.st, got, stdout)
+		}
+		if !tc.want && strings.Contains(stdout, "cannot compare") {
+			t.Fatalf("%+v: human output names a comparison error\n%s", tc.st, stdout)
+		}
+		_, stdout, _ = runCLI(fakeRuntime{control: &control}, "service", "status", "--json")
+		if got := strings.Contains(stdout, "stale_agent_error"); got != tc.want {
+			t.Fatalf("%+v: json names stale_agent_error: %v\n%s", tc.st, got, stdout)
+		}
+		if tc.want && (!strings.Contains(stdout, `"stale_agent_error": "open /Users/op/Library/LaunchAgents/ktags.plist: permission denied"`) || strings.Contains(stdout, `"stale_agent"`)) {
+			t.Fatalf("json %s", stdout)
+		}
+	}
+}
+
 // #68-K1 D3: a current agent prints no stale line, and --json carries stale_agent only when set.
 func TestServiceStaleAgentOutput(t *testing.T) {
 	for _, tc := range []struct {

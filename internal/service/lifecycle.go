@@ -35,6 +35,8 @@ type Status struct {
 	// StaleAgent is set when the launcher's installed definition differs from the one this
 	// build would write; the running service keeps the old one until it is stopped and started.
 	StaleAgent bool
+	// StaleAgentErr is why the definitions could not be compared; StaleAgent is then false.
+	StaleAgentErr string
 }
 
 // staler is a Launcher whose installed definition can differ from the one Launch would write.
@@ -96,9 +98,12 @@ func (l Lifecycle) Status(ctx context.Context) (Status, error) {
 		return st, err
 	}
 	st.Running = true
-	// An unreadable definition is left to ktags doctor, which names its own fix.
+	// An unreadable definition is reported, not an error: the service itself answers.
 	if s, ok := l.Launcher.(staler); ok {
-		if stale, err := s.Stale(); err == nil {
+		stale, err := s.Stale()
+		if err != nil {
+			st.StaleAgentErr = err.Error()
+		} else {
 			st.StaleAgent = stale
 		}
 	}
