@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 
 	"github.com/nesiler/ktags/internal/app"
@@ -38,16 +39,18 @@ func TestVersionCommand(t *testing.T) {
 	}
 }
 
+// An unknown command is a usage error: exit 1 (docs/guides/development.md §3) with the usage.
 func TestUnknownCommand(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	if got := app.Run(version, []string{"unknown"}, &stdout, &stderr); got != 2 {
-		t.Fatalf("exit code = %d, want 2", got)
+	if got := app.Run(version, []string{"unknown"}, &stdout, &stderr); got != 1 {
+		t.Fatalf("exit code = %d, want 1", got)
 	}
 	if got := stdout.String(); got != "" {
 		t.Fatalf("stdout = %q, want empty", got)
 	}
-	want := "ktags: nothing to run yet; see README.md and the open GitHub issues\n"
-	if got := stderr.String(); got != want {
-		t.Fatalf("stderr = %q, want %q", got, want)
+	for _, want := range []string{"ktags: unknown command \"unknown\"\n", "usage: ktags <command>"} {
+		if got := stderr.String(); !strings.Contains(got, want) {
+			t.Fatalf("stderr = %q, want it to contain %q", got, want)
+		}
 	}
 }
