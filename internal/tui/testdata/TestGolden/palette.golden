@@ -1,0 +1,30 @@
+ ktags test │ ● service connected │ zulu (-) │ ▶ 1 run active │ mouse on                            
+┏━ Customers (15) ━━━━━━━━━━━━━━━━━━━━━━━━━━┓┌─ zulu (-) ──────────────────────────────────────────┐
+┃› ! invalid     zulu             -         ┃│[Nodes]  Health   Runs                               │
+┃  ✗ fail        mike             prod      ┃│                                                     │
+┃  ✗ fail        oscar            staging   ┃│! record refused: cannot parse the customer record at│
+┃  ✗ unreachable golf             staging ⠋ ┃│                  line 3                             │
+┃  ○ stale · 5h  kilo             prod      ┃│next: ktags customer list                            │
+┃  ○ missed · 7h lima             test      ┃│                                                     │
+┃  ○ stale · 2d  papa             prod      ┃│                                                     │
+┃  ○ never       hotel            staging   ┃│                                                     │
+┃  ○ never       india            test      ┃│                                                     │
+┃  ⚠ warn        echo             prod      ┃│                                                     │
+┃  ⚠ warn        foxtrot          staging   ┃│                                                     │
+┃  ✓ ok          alpha            test    ⠋ ┃│                                                     │
+┃  ✓ ok          bravo            prod    ⠋ ┃│                                                     │
+┃  ✓ ok          charlie          prod      ┃│                                                     │
+┃  ✓ ok          delta            staging   ┃│                                                     │
+┃                                           ┃│                                                     │
+┏━ Palette ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓         │
+┃customer actions                                                                        ┃         │
+┃› fake check               Fake check                                                   ┃         │
+┃  fake touch               Fake touch                                                   ┃         │
+┃  fake wipe                Fake wipe                                                    ┃         │
+┃node actions                                                                            ┃         │
+┃  node drain               Drain a node                                                 ┃         │
+┃global actions                                                                          ┃         │
+┃  fake quick               Fake quick                                                   ┃         │
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛─────────┘
+ enter run  tab complete  ↑↓ select  esc close                                                      
+ :▏                                                                                                 

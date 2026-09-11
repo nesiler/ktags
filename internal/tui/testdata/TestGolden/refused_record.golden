@@ -1,0 +1,30 @@
+ ktags test │ ● service connected │ zulu (-) │ ▶ 1 run active │ mouse on                            
+┏━ Customers (15) ━━━━━━━━━━━━━━━━━━━━━━━━━━┓┌─ zulu (-) ──────────────────────────────────────────┐
+┃› ! invalid     zulu             -         ┃│[Nodes]  Health   Runs                               │
+┃  ✗ fail        mike             prod      ┃│                                                     │
+┃  ✗ fail        oscar            staging   ┃│! record refused: cannot parse the customer record at│
+┃  ✗ unreachable golf             staging ⠋ ┃│                  line 3                             │
+┃  ○ stale · 5h  kilo             prod      ┃│next: ktags customer list                            │
+┃  ○ missed · 7h lima             test      ┃│                                                     │
+┃  ○ stale · 2d  papa             prod      ┃│                                                     │
+┃  ○ never       hotel            staging   ┃│                                                     │
+┃  ○ never    ┏━ cannot start fake touch ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓             │
+┃  ⚠ warn     ┃the record of customer "zulu" is refused: cannot parse the customer   ┃             │
+┃  ⚠ warn     ┃record at line 3                                                      ┃             │
+┃  ✓ ok       ┃nothing was started                                                   ┃             │
+┃  ✓ ok       ┃                                                                      ┃             │
+┃  ✓ ok       ┃next: fix the customer record, then check it with: ktags customer list┃             │
+┃  ✓ ok       ┃                                                                      ┃             │
+┃             ┃enter close                                                           ┃             │
+┃             ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛             │
+┃                                           ┃│                                                     │
+┃                                           ┃│                                                     │
+┃                                           ┃│                                                     │
+┃                                           ┃│                                                     │
+┃                                           ┃│                                                     │
+┃                                           ┃│                                                     │
+┃                                           ┃│                                                     │
+┃                                           ┃│                                                     │
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛└─────────────────────────────────────────────────────┘
+                                                                                                    
+                                                                                                    

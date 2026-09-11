@@ -1,0 +1,30 @@
+ ktags test │ ✗ service unavailable │ mouse on                                                      
+┏━ ktags service unavailable ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃✗ ktags service unavailable                                                                       ┃
+┃                                                                                                  ┃
+┃cause  cannot reach the ktags service at /tmp/kt/runtime/service.sock                             ┃
+┃next   ktags service start                                                                        ┃
+┃                                                                                                  ┃
+┃Enter retries · q quits                                                                           ┃
+┃                                                                                                  ┃
+┃                                                                                                  ┃
+┃                                                                                                  ┃
+┃                                                                                                  ┃
+┃                                                                                                  ┃
+┃                                                                                                  ┃
+┃                                                                                                  ┃
+┃                                                                                                  ┃
+┃                                                                                                  ┃
+┃                                                                                                  ┃
+┃                                                                                                  ┃
+┃                                                                                                  ┃
+┃                                                                                                  ┃
+┃                                                                                                  ┃
+┃                                                                                                  ┃
+┃                                                                                                  ┃
+┃                                                                                                  ┃
+┃                                                                                                  ┃
+┃                                                                                                  ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+ enter retry  ? help  m mouse  q quit                                                               
+                                                                                                    

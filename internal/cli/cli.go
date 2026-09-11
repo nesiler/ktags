@@ -134,7 +134,7 @@ func (e *env) root() *cobra.Command {
 			if e.version {
 				return e.printVersion()
 			}
-			return usageError(cmd, "the ktags TUI is not available yet; use one of the commands")
+			return usageError(cmd, "the ktags TUI needs a terminal on stdin and stdout; use one of the commands")
 		},
 	}
 	root.PersistentFlags().BoolVar(&e.json, "json", e.json, "print one JSON document on stdout; human text goes to stderr")

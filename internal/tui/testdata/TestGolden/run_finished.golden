@@ -1,0 +1,30 @@
+ ktags test │ ● service connected │ mike (prod) │ ▶ 1 run active │ mouse on                         
+┏━ Run 20260911T114000Z-00000001 · fake check · mike ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃✓ succeeded · started 20m ago · 1m                                                                ┃
+┃   1 check: event 1                                                                               ┃
+┃   2 check: event 2                                                                               ┃
+┃                                                                                                  ┃
+┃                                                                                                  ┃
+┃                                                                                                  ┃
+┃                                                                                                  ┃
+┃                                                                                                  ┃
+┃                                                                                                  ┃
+┃                                                                                                  ┃
+┃                                                                                                  ┃
+┃                                                                                                  ┃
+┃                                                                                                  ┃
+┃                                                                                                  ┃
+┃                                                                                                  ┃
+┃                                                                                                  ┃
+┃                                                                                                  ┃
+┃                                                                                                  ┃
+┃                                                                                                  ┃
+┃                                                                                                  ┃
+┃                                                                                                  ┃
+┃result    ✓ succeeded  checked 2 endpoints                                                        ┃
+┃duration  1m                                                                                      ┃
+┃finished  2026-09-11 11:41:00 UTC                                                                 ┃
+┃next      ktags run status 20260911T114000Z-00000001                                              ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+ esc back  ↑↓ scroll  end follow  : palette  ? help  m mouse                                        
+                                                                                                    
