@@ -471,14 +471,26 @@ class ReviewFollowUpContractTests(unittest.TestCase):
             "operator roster in the config dir, exported with the customer (how: `security.md §2`)",
             self.text("docs/guides/ansible.md"))
 
-    def test_security_paragraph_lines_fit(self):
-        fenced = False
-        for number, line in enumerate((ROOT / "docs/guides/security.md").read_text().splitlines(), 1):
+    @staticmethod
+    def long_prose_lines(text, width=100):
+        # Table rows and code blocks are exempt from the width by convention.
+        long, fenced = [], False
+        for number, line in enumerate(text.splitlines(), 1):
             if line.startswith("```"):
                 fenced = not fenced
+                continue
             if fenced or line.startswith("|"):
                 continue
-            self.assertLessEqual(len(line), 100, f"security.md:{number}")
+            if len(line) > width:
+                long.append(number)
+        return long
+
+    def test_security_paragraph_lines_fit(self):
+        self.assertEqual(self.long_prose_lines((ROOT / "docs/guides/security.md").read_text()), [])
+
+    def test_width_check_exempts_only_tables_and_code(self):
+        text = "\n".join(["| " + "x" * 120, "```", "y" * 120, "```", "w" * 100, "z" * 101])
+        self.assertEqual(self.long_prose_lines(text), [6])
 
 
 if __name__ == "__main__":
