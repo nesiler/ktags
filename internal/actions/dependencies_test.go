@@ -14,6 +14,7 @@ func TestCorePackagesDoNotDependOnAdapters(t *testing.T) {
 		module + "/internal/actions",
 		module + "/internal/core/domain",
 		module + "/internal/mask",
+		module + "/internal/service",
 	}
 	forbidden := []string{
 		module + "/internal/cli",

@@ -24,9 +24,14 @@ const (
 
 var recordHeader = []byte("# Written by ktags: customer and cluster identity, nodes, access. No secrets.\n")
 
+// CustomersDir is the directory below the ktags data root that holds one directory per customer.
+func CustomersDir(dataRoot string) string {
+	return filepath.Join(dataRoot, customersDir)
+}
+
 // CustomerDir is the inventory directory of a customer below the ktags data root.
 func CustomerDir(dataRoot, customerID string) string {
-	return filepath.Join(dataRoot, customersDir, customerID)
+	return filepath.Join(CustomersDir(dataRoot), customerID)
 }
 
 // RecordPath is the ktags.yml file inside a customer directory.
