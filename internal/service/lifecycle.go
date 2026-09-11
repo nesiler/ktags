@@ -32,7 +32,27 @@ type Status struct {
 	Service    string
 	Version    string
 	ActiveRuns int
+	// StaleAgent is set when the launcher's installed definition differs from the one this
+	// build would write; the running service keeps the old one until it is stopped and started.
+	StaleAgent bool
 }
+
+// staler is a Launcher whose installed definition can differ from the one Launch would write.
+type staler interface {
+	Stale() (bool, error)
+}
+
+// loader is a Launcher that can tell whether its job is loaded.
+type loader interface {
+	Loaded(ctx context.Context) bool
+}
+
+// errAwaitTimeout is await's own timeout; Start and Stop explain it.
+var errAwaitTimeout = errors.New("the wait for the service timed out")
+
+// StaleFix replaces a stale launcher definition. Stop refuses while runs are active, so the
+// fix never interrupts work.
+const StaleFix = "ktags service stop && ktags service start"
 
 // StopResult is the outcome of a stop.
 type StopResult struct {
@@ -76,6 +96,12 @@ func (l Lifecycle) Status(ctx context.Context) (Status, error) {
 		return st, err
 	}
 	st.Running = true
+	// An unreadable definition is left to ktags doctor, which names its own fix.
+	if s, ok := l.Launcher.(staler); ok {
+		if stale, err := s.Stale(); err == nil {
+			st.StaleAgent = stale
+		}
+	}
 	st.Protocol = ProtocolVersion
 	st.PID = hello.PID
 	st.Service = hello.Service
@@ -105,6 +131,9 @@ func (l Lifecycle) Start(ctx context.Context) (st Status, started bool, err erro
 		return st, false, err
 	}
 	st, err = l.await(ctx, true)
+	if errors.Is(err, errAwaitTimeout) {
+		err = l.startTimedOut(ctx)
+	}
 	return st, err == nil, err
 }
 
@@ -124,6 +153,9 @@ func (l Lifecycle) Stop(ctx context.Context, cancelRuns bool) (StopResult, error
 		}
 		res = StopResult{WasRunning: true, Cancelled: runs}
 		if _, err := l.await(ctx, false); err != nil {
+			if errors.Is(err, errAwaitTimeout) {
+				err = &Error{Code: CodeUnavailable, Message: fmt.Sprintf("the ktags service accepted the stop but still answers on %s after %s", l.Socket, l.timeout()), Hint: "check `ktags service status` again; if it keeps answering, report this as a bug"}
+			}
 			return res, err
 		}
 	}
@@ -154,7 +186,7 @@ func (l Lifecycle) await(ctx context.Context, want bool) (Status, error) {
 		case st.Running == want:
 			return st, nil
 		case time.Now().After(deadline):
-			return st, l.timedOut(want, timeout)
+			return st, errAwaitTimeout
 		}
 		select {
 		case <-ctx.Done():
@@ -164,11 +196,14 @@ func (l Lifecycle) await(ctx context.Context, want bool) (Status, error) {
 	}
 }
 
-func (l Lifecycle) timedOut(want bool, timeout time.Duration) error {
-	if want {
-		return &Error{Code: CodeUnavailable, Message: fmt.Sprintf("the ktags service did not answer on %s within %s of its launch", l.Socket, timeout), Hint: "run `ktags service run` in a terminal to see why it does not start"}
+// startTimedOut explains a launch that never answered. A job the launcher still has loaded is
+// not launched again by Start (it is left alone), so only replacing it can help.
+func (l Lifecycle) startTimedOut(ctx context.Context) error {
+	timeout := l.timeout()
+	if ld, ok := l.Launcher.(loader); ok && ld.Loaded(ctx) {
+		return &Error{Code: CodeUnavailable, Message: fmt.Sprintf("the ktags service did not answer on %s within %s; its job is loaded but the service does not run", l.Socket, timeout), Hint: "replace the job with: " + StaleFix}
 	}
-	return &Error{Code: CodeUnavailable, Message: fmt.Sprintf("the ktags service accepted the stop but still answers on %s after %s", l.Socket, timeout), Hint: "check `ktags service status` again; if it keeps answering, report this as a bug"}
+	return &Error{Code: CodeUnavailable, Message: fmt.Sprintf("the ktags service did not answer on %s within %s of its launch", l.Socket, timeout), Hint: "run `ktags service run` in a terminal to see why it does not start"}
 }
 
 // NoLauncher is the launcher of platforms without a service manager integration yet; systemd

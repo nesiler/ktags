@@ -12,15 +12,23 @@ import (
 	"github.com/nesiler/ktags/internal/service"
 )
 
-// installAgent writes the launchd definition exactly as `ktags service start` does.
-func installAgent(t *testing.T, env *Env, program string) {
+// installAgent writes the launchd definition exactly as `ktags service start` does for a job
+// launchd does not have loaded.
+func installAgent(t *testing.T, env *Env, program string) launchd.Agent {
 	t.Helper()
 	agent := launchd.New(program, env.Roots)
-	agent.Launchctl = func(context.Context, ...string) ([]byte, error) { return nil, nil }
+	agent.Launchctl = func(_ context.Context, args ...string) ([]byte, error) {
+		if args[0] == "print" {
+			return nil, errors.New("exit status 113")
+		}
+		return nil, nil
+	}
 	if err := agent.Launch(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	env.AgentDefinition = agent.Definition
+	env.AgentStale = agent.Stale
+	return agent
 }
 
 func executable(t *testing.T, mode os.FileMode) string {
@@ -79,6 +87,35 @@ func TestAgent(t *testing.T) {
 		r := only(t, runCheck(t, "service.agent", env))
 		want(t, r, StatusFail, restartFix)
 		if !strings.Contains(r.Evidence, "points at "+program+", which cannot be found") {
+			t.Fatalf("evidence %q", r.Evidence)
+		}
+	})
+	// #68-K1 D3: a definition another build wrote is reported, with the stop-and-start fix.
+	t.Run("stale definition", func(t *testing.T) {
+		env := testEnv(t)
+		agent := installAgent(t, &env, executable(t, 0o755))
+		newer := agent
+		newer.Program = executable(t, 0o755)
+		env.AgentStale = newer.Stale
+		r := only(t, runCheck(t, "service.agent", env))
+		want(t, r, StatusWarn, "ktags service stop && ktags service start")
+		if !strings.Contains(r.Evidence, "stale agent definition: "+agent.Definition) {
+			t.Fatalf("evidence %q", r.Evidence)
+		}
+	})
+	t.Run("no comparison available", func(t *testing.T) {
+		env := testEnv(t)
+		installAgent(t, &env, executable(t, 0o755))
+		env.AgentStale = nil
+		want(t, only(t, runCheck(t, "service.agent", env)), StatusOK, "")
+	})
+	t.Run("definition cannot be compared", func(t *testing.T) {
+		env := testEnv(t)
+		installAgent(t, &env, executable(t, 0o755))
+		env.AgentStale = func() (bool, error) { return false, errors.New("permission denied") }
+		r := only(t, runCheck(t, "service.agent", env))
+		want(t, r, StatusWarn, restartFix)
+		if !strings.Contains(r.Evidence, "cannot compare the launchd agent") || !strings.Contains(r.Evidence, "permission denied") {
 			t.Fatalf("evidence %q", r.Evidence)
 		}
 	})

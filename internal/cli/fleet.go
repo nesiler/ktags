@@ -151,14 +151,14 @@ func measured(now time.Time, at *time.Time) string {
 }
 
 func freshness(c service.FleetEntry) string {
-	s := "fresh"
-	if c.Stale {
-		s = "stale"
+	if !c.Stale {
+		// A fresh measurement resets the missed count; the service sends none.
+		return "fresh"
 	}
 	if c.Missed > 0 {
-		s += fmt.Sprintf(", %d missed", c.Missed)
+		return fmt.Sprintf("stale, %d missed", c.Missed)
 	}
-	return s
+	return "stale"
 }
 
 func versions(v map[string]string) string {

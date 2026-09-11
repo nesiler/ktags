@@ -11,6 +11,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 )
 
 // #11-K2: a second service on the same runtime root is refused and leaves the first one serving.
@@ -208,7 +209,7 @@ func TestRefusalReadAfterServerClosedBeforeWrite(t *testing.T) {
 		s.peerUID = func(*net.UnixConn) (int, error) { return os.Getuid(), errors.New("no credentials") }
 	}})
 	c := f.client
-	c.connected = func() { <-f.conns } // the service has written its refusal and closed
+	c.connected = func(net.Conn) { <-f.conns } // the service has written its refusal and closed
 	_, err := c.Hello(context.Background())
 	wantCode(t, err, CodeForbidden)
 }
@@ -228,12 +229,85 @@ func TestFailedWriteWithoutReplyUnavailable(t *testing.T) {
 			_ = conn.Close()
 		}
 	}()
-	c := Client{Socket: sock, connected: func() { <-closed }}
+	c := Client{Socket: sock, connected: func(net.Conn) { <-closed }}
 	_, err = c.Hello(context.Background())
 	// A write to a closed peer reports EPIPE on darwin and Linux; other platforms may say
 	// ECONNRESET for the same case. Either one is the failed write.
 	if pe := wantCode(t, err, CodeUnavailable); !errors.Is(err, syscall.EPIPE) && !errors.Is(err, syscall.ECONNRESET) {
 		t.Fatalf("error %q wraps %v, want the failed write (EPIPE or ECONNRESET)", pe.Message, errors.Unwrap(err))
+	}
+}
+
+// silentPeer accepts one connection and never reads, answers or closes it while the test runs.
+// failWrite, as the client's connected hook, makes the client's write fail on it.
+func silentPeer(t *testing.T) (sock string, failWrite func(net.Conn)) {
+	t.Helper()
+	sock = filepath.Join(shortDir(t), "s.sock")
+	l, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	accepted := make(chan struct{})
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release); _ = l.Close() })
+	go func() {
+		conn, err := l.AcceptUnix()
+		if err != nil {
+			return
+		}
+		close(accepted)
+		<-release
+		_ = conn.Close()
+	}()
+	return sock, func(conn net.Conn) {
+		<-accepted
+		// A write deadline in the past fails the write at once; the peer stays silent.
+		_ = conn.SetWriteDeadline(time.Unix(1, 0))
+	}
+}
+
+// #68-K1 D5: after a failed write, a silent peer holds the client for the short internal wait,
+// not until the caller's deadline.
+func TestFailedWriteSilentPeerBounded(t *testing.T) {
+	sock, failWrite := silentPeer(t)
+	c := Client{Socket: sock, connected: failWrite, writeWait: 50 * time.Millisecond}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	began := time.Now()
+	_, err := c.Hello(ctx)
+	if took := time.Since(began); took > 10*time.Second {
+		t.Fatalf("the client waited %s for a silent peer", took)
+	}
+	if pe := wantCode(t, err, CodeUnavailable); !errors.Is(err, os.ErrDeadlineExceeded) {
+		t.Fatalf("error %q wraps %v, want the failed write", pe.Message, errors.Unwrap(err))
+	}
+}
+
+// #68-K1 D5: the internal wait never outlasts the caller's deadline.
+func TestFailedWriteWaitCappedByCaller(t *testing.T) {
+	sock, failWrite := silentPeer(t)
+	c := Client{Socket: sock, connected: failWrite, writeWait: time.Hour}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		_, err := c.Hello(ctx)
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("error %v, want the caller's deadline", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the client outlasted the caller's deadline")
+	}
+}
+
+// The default wait is the 2s the decision names.
+func TestFailedWriteWaitDefault(t *testing.T) {
+	if got := (Client{}).failedWriteWait(); got != 2*time.Second {
+		t.Fatalf("default wait %s, want 2s", got)
 	}
 }
 

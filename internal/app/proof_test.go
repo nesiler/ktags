@@ -465,8 +465,9 @@ func TestPhase0Proof(t *testing.T) {
 	}))
 	for _, id := range ids {
 		c := entry(t, info, id)
-		if c.State != want(id) || (c.Problem == "" && (c.Missed == 0 || c.Trigger != "scheduled")) {
-			t.Fatalf("%s after the catch-up: state %s missed %d trigger %s; want %s with the missed slots kept", id, c.State, c.Missed, c.Trigger, want(id))
+		// #68-K1 D1: the fresh catch-up result resets the missed count.
+		if c.State != want(id) || (c.Problem == "" && (c.Missed != 0 || c.Trigger != "scheduled")) {
+			t.Fatalf("%s after the catch-up: state %s missed %d trigger %s; want %s, scheduled, with no missed count", id, c.State, c.Missed, c.Trigger, want(id))
 		}
 	}
 	human = p.agree(func(c service.FleetEntry) string { return tuiState[c.State] })

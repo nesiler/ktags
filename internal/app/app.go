@@ -167,6 +167,7 @@ func (a appRuntime) Doctor(ctx context.Context) (doctor.Report, error) {
 	switch launcher := a.deps.launcher(roots).(type) {
 	case launchd.Agent:
 		env.AgentDefinition = launcher.Definition
+		env.AgentStale = launcher.Stale
 	case service.NoLauncher:
 		env.Foreground = true
 	}

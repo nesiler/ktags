@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/nesiler/ktags/internal/paths"
 	"github.com/nesiler/ktags/internal/service"
+	"github.com/nesiler/ktags/internal/shell"
 )
 
 const labelPrefix = "io.github.nesiler.ktags.service"
@@ -72,21 +74,49 @@ func launchctlCommand(ctx context.Context, args ...string) *exec.Cmd {
 func (a Agent) domain() string { return "gui/" + strconv.Itoa(a.UID) }
 func (a Agent) target() string { return a.domain() + "/" + a.Label }
 
-// Launch writes the definition and loads it. A job that is still loaded (stopped by a crash,
-// or already starting) is kickstarted instead; kickstart without -k never kills an instance.
+// Launch writes the definition and loads it. A job that is still loaded is left as it is:
+// neither its definition file nor its process changes, so a definition that differs from this
+// build's stays visible through Stale. launchd itself restarts a loaded job that crashed.
 func (a Agent) Launch(ctx context.Context) error {
-	if err := a.write(); err != nil {
+	data, err := a.prepare()
+	if err != nil {
 		return err
 	}
-	if _, err := a.Launchctl(ctx, "print", a.target()); err == nil {
-		return a.launchctl(ctx, "kickstart", a.target())
+	if a.Loaded(ctx) {
+		return nil
+	}
+	if err := a.write(data); err != nil {
+		return err
 	}
 	return a.launchctl(ctx, "bootstrap", a.domain(), a.Definition)
 }
 
+// Stale reports whether the definition file differs from the one this build writes. A missing
+// file is not stale: nothing is loaded from it. It only reads the file.
+func (a Agent) Stale() (bool, error) {
+	want, err := a.plist()
+	if err != nil {
+		return false, err
+	}
+	got, err := os.ReadFile(a.Definition)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return false, nil
+	case err != nil:
+		return false, err
+	}
+	return !bytes.Equal(got, want), nil
+}
+
+// Loaded reports whether launchd has the job loaded, running or not.
+func (a Agent) Loaded(ctx context.Context) bool {
+	_, err := a.Launchctl(ctx, "print", a.target())
+	return err == nil
+}
+
 // Unload removes the job from launchd. A job that is not loaded is left alone.
 func (a Agent) Unload(ctx context.Context) error {
-	if _, err := a.Launchctl(ctx, "print", a.target()); err != nil {
+	if !a.Loaded(ctx) {
 		return nil
 	}
 	return a.launchctl(ctx, "bootout", a.target())
@@ -104,21 +134,23 @@ func (a Agent) launchctl(ctx context.Context, args ...string) error {
 	return unavailable(fmt.Sprintf("launchctl %s %s failed: %s", args[0], a.Label, detail), "inspect the job with: launchctl print "+a.target())
 }
 
-// write stores the definition with mode 0600 in a private directory, replacing an older one in
-// one rename so launchd never reads half a file.
-func (a Agent) write() error {
+// prepare refuses a definition that cannot be written, before launchctl is asked anything, and
+// returns its content.
+func (a Agent) prepare() ([]byte, error) {
 	if !filepath.IsAbs(a.Program) {
-		return &service.Error{Code: service.CodeInternal, Message: fmt.Sprintf("the ktags executable path %q is not absolute", a.Program), Hint: "run ktags from an absolute path"}
+		return nil, &service.Error{Code: service.CodeInternal, Message: fmt.Sprintf("the ktags executable path %q is not absolute", a.Program), Hint: "run ktags from an absolute path"}
 	}
 	for _, dir := range []string{filepath.Dir(a.Definition), filepath.Dir(a.Log)} {
 		if err := privateDir(dir); err != nil {
-			return err
+			return nil, err
 		}
 	}
-	data, err := a.plist()
-	if err != nil {
-		return err
-	}
+	return a.plist()
+}
+
+// write stores the definition with mode 0600 in its private directory, replacing an older one
+// in one rename so launchd never reads half a file.
+func (a Agent) write(data []byte) error {
 	tmp, err := os.CreateTemp(filepath.Dir(a.Definition), ".plist-*")
 	if err != nil {
 		return unavailable("cannot write the launchd definition "+a.Definition+": "+err.Error(), "check the permissions of the ktags state root")
@@ -147,7 +179,7 @@ func privateDir(dir string) error {
 		return unavailable("cannot inspect "+dir+": "+err.Error(), "check the permissions of the ktags state root")
 	}
 	if info.Mode().Perm()&0o077 != 0 {
-		return unavailable(fmt.Sprintf("%s has mode %04o; group and others must have no access", dir, info.Mode().Perm()), fmt.Sprintf("chmod 700 %q", dir))
+		return unavailable(fmt.Sprintf("%s has mode %04o; group and others must have no access", dir, info.Mode().Perm()), "chmod 700 "+shell.Quote(dir))
 	}
 	return nil
 }

@@ -1,7 +1,9 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -164,6 +166,34 @@ func TestDoctorLauncherAndRoots(t *testing.T) {
 	}}
 	_, stderr := h.want(1, "doctor")
 	contains(t, stderr, "KTAGS_HOME: must be an absolute path")
+}
+
+// #68-K1 D3: the composition root hands doctor the agent's comparison, so a definition that
+// another build wrote is reported as stale with the stop-and-start fix.
+func TestDoctorReportsStaleAgent(t *testing.T) {
+	h := newHarness(t)
+	h.deps.lookPath = func(string) (string, error) { return "/usr/bin/ssh", nil }
+	older := launchd.New("/bin/sh", mustRoots(t, h))
+	older.Launchctl = func(_ context.Context, args ...string) ([]byte, error) {
+		if args[0] == "print" {
+			return nil, errors.New("exit status 113")
+		}
+		return nil, nil
+	}
+	if err := older.Launch(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	h.deps.launcher = func(roots paths.Roots) service.Launcher { return launchd.New("/usr/bin/true", roots) }
+	stdout, _ := h.want(4, "doctor", "--json")
+	for _, c := range doctorReport(t, stdout).Checks {
+		if c.ID == "service.agent" {
+			if c.Status != "warn" || !strings.Contains(c.Evidence, "stale agent definition: "+older.Definition) || c.Fix != "ktags service stop && ktags service start" {
+				t.Fatalf("agent row %+v, want a stale definition", c)
+			}
+			return
+		}
+	}
+	t.Fatal("no service.agent row")
 }
 
 func mustRoots(t *testing.T, h *harness) paths.Roots {

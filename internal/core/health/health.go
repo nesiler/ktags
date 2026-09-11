@@ -127,6 +127,12 @@ type Engine struct {
 	mu      sync.Mutex
 	reports map[string]Report
 	running map[string]int
+	// missedBase is the schedule's missed count of a customer when its cached report started;
+	// a view counts only the slots missed after it.
+	missedBase map[string]int
+	// alive holds, per check and customer, a check that has started and not yet returned,
+	// whether or not its caller still waits for it. While it is set the check is not started.
+	alive map[string]bool
 }
 
 // New validates the options. It refuses a missing clock or redactor, no checks, a check without
@@ -185,14 +191,16 @@ func New(opts Options) (*Engine, error) {
 		concurrency = defaultConcurrency
 	}
 	e := &Engine{
-		clock:     opts.Clock,
-		redact:    opts.Redact,
-		checks:    slices.Clone(opts.Checks),
-		customers: slices.Sorted(slices.Values(opts.Customers)),
-		intervals: intervals,
-		slots:     make(chan struct{}, concurrency),
-		reports:   map[string]Report{},
-		running:   map[string]int{},
+		clock:      opts.Clock,
+		redact:     opts.Redact,
+		checks:     slices.Clone(opts.Checks),
+		customers:  slices.Sorted(slices.Values(opts.Customers)),
+		intervals:  intervals,
+		slots:      make(chan struct{}, concurrency),
+		reports:    map[string]Report{},
+		running:    map[string]int{},
+		missedBase: map[string]int{},
+		alive:      map[string]bool{},
 	}
 	jobs := make([]schedule.Job, 0, len(e.customers))
 	for _, customer := range e.customers {
@@ -267,6 +275,9 @@ func (e *Engine) measure(ctx context.Context, customer string, trigger Trigger) 
 		e.mu.Unlock()
 	}()
 
+	// The schedule counts the slots a catch-up run follows before it starts the run, so they
+	// are all in this count.
+	missedBase := e.scheduledMissed(customer)
 	r := Report{Customer: customer, Trigger: trigger, MeasuredAt: e.clock.Now(), Health: HealthOK}
 	for _, c := range e.checks {
 		res := e.runCheck(ctx, c, customer)
@@ -288,22 +299,53 @@ func (e *Engine) measure(ctx context.Context, customer string, trigger Trigger) 
 	// Runs of one customer may overlap; an older measurement never replaces a newer one.
 	if old, ok := e.reports[customer]; !ok || !r.MeasuredAt.Before(old.MeasuredAt) {
 		e.reports[customer] = r
+		e.missedBase[customer] = missedBase
 	}
 	return r, true
 }
 
+// scheduledMissed is the schedule's count of the customer's missed slots so far.
+func (e *Engine) scheduledMissed(customer string) int {
+	for _, st := range e.sched.States() {
+		if st.Name == jobName(customer) {
+			return st.Missed
+		}
+	}
+	return 0
+}
+
 // runCheck runs c and stops waiting at its timeout, even when c ignores its context. A check
 // that ignores the context keeps its goroutine until it returns, but no longer holds the slot.
+// A check is alive for the customer from its start until it returns; while it is, no other run
+// starts it, whether that run overlaps it or follows a run that stopped waiting. A hung check
+// therefore leaks at most one goroutine.
 func (e *Engine) runCheck(ctx context.Context, c Check, customer string) CheckResult {
 	timeout := c.Timeout
 	if timeout == 0 {
 		timeout = defaultTimeout
 	}
+	res := CheckResult{Check: c.Name, Severity: c.Severity, MeasuredAt: e.clock.Now()}
+	key := c.Name + "\x00" + customer
+	e.mu.Lock()
+	if e.alive[key] {
+		e.mu.Unlock()
+		res.Status = StatusTimeout
+		res.Detail = "not started: the previous run is still running"
+		return res
+	}
+	e.alive[key] = true
+	e.mu.Unlock()
+
 	cctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	res := CheckResult{Check: c.Name, Severity: c.Severity, MeasuredAt: e.clock.Now()}
 	done := make(chan error, 1)
-	go func() { done <- c.Run(cctx, customer) }()
+	go func() {
+		err := c.Run(cctx, customer)
+		e.mu.Lock()
+		delete(e.alive, key)
+		e.mu.Unlock()
+		done <- err
+	}()
 	select {
 	case err := <-done:
 		res.Status = StatusOK
@@ -336,8 +378,9 @@ type View struct {
 	Interval time.Duration
 	// Next is the next scheduled slot; zero before Start.
 	Next time.Time
-	// Missed counts the scheduled slots that could not run; the latest group spans MissedFrom
-	// to MissedTo.
+	// Missed counts the scheduled slots that could not run since the latest measurement started;
+	// the latest group spans MissedFrom to MissedTo. It is zero while the view is fresh: a fresh
+	// measurement resets it, and past slots stay in the run history.
 	Missed     int
 	MissedFrom time.Time
 	MissedTo   time.Time
@@ -364,7 +407,10 @@ func (e *Engine) Views() []View {
 			v.Stale = now.Before(r.MeasuredAt) || now.Sub(r.MeasuredAt) > interval+grace(interval)
 		}
 		if st, ok := states[jobName(customer)]; ok {
-			v.Next, v.Missed, v.MissedFrom, v.MissedTo = st.Next, st.Missed, st.MissedFrom, st.MissedTo
+			v.Next = st.Next
+			if missed := st.Missed - e.missedBase[customer]; missed > 0 && v.Stale {
+				v.Missed, v.MissedFrom, v.MissedTo = missed, st.MissedFrom, st.MissedTo
+			}
 		}
 		out = append(out, v)
 	}

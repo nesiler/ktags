@@ -4,8 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"strings"
 	"syscall"
+
+	"github.com/nesiler/ktags/internal/shell"
 )
 
 // dirMode is private to the operator: roots hold inventories, secret references, run records and
@@ -59,7 +60,7 @@ func ensure(root Root) error {
 			Problem: fmt.Sprintf("the %s root %q is owned by user ID %d, not by you (user ID %d)",
 				root.Name, root.Path, st.Uid, uid),
 			Next: fmt.Sprintf("sudo chown %d %s, or set %s to another absolute path",
-				uid, shellQuote(root.Path), root.Override),
+				uid, shell.Quote(root.Path), root.Override),
 		}
 	}
 	if perm := info.Mode().Perm(); perm&^dirMode != 0 {
@@ -67,15 +68,8 @@ func ensure(root Root) error {
 			Setting: root.Setting,
 			Problem: fmt.Sprintf("the %s root %q has mode %04o; group and others must have no access",
 				root.Name, root.Path, perm),
-			Next: "chmod 700 " + shellQuote(root.Path),
+			Next: "chmod 700 " + shell.Quote(root.Path),
 		}
 	}
 	return nil
-}
-
-// shellQuote quotes s for a POSIX shell, so a suggested command can be pasted as it is. Nothing
-// is special inside single quotes; a single quote in s closes the quoting, is escaped with a
-// backslash, and reopens it.
-func shellQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
