@@ -171,6 +171,13 @@ func TestConnectionState(t *testing.T) {
 			t.SSHUnsupported = "jump access"
 			return t, nil
 		}}, fleet.ConnUnreachable},
+		// Nothing is measured: the nodes need another access and there is no API to ask.
+		{"no SSH adapter, no API configured", setup{target: func() (Target, error) {
+			t := labTarget()
+			t.SSHUnsupported = "jump access"
+			t.Kube = nil
+			return t, nil
+		}}, fleet.ConnUnknown},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -230,6 +237,10 @@ func TestUnsupportedAccess(t *testing.T) {
 	}
 	if r.Health != health.HealthWarn {
 		t.Fatalf("health %s, want warn", r.Health)
+	}
+	// The API answered, so the customer is reachable although no node was measured.
+	if c := p.Connection("acme"); c.State != fleet.ConnReachable {
+		t.Fatalf("connection %+v, want reachable", c)
 	}
 }
 
