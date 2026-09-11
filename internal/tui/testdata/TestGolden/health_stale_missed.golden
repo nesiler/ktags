@@ -9,8 +9,8 @@
 │  ○ stale · 2d  papa             prod      │┃missed      3 scheduled check(s) could not run       ┃
 │  ○ never       hotel            staging   │┃connection  reachable · 7h ago                       ┃
 │  ○ never       india            test      │┃                                                     ┃
-│  ⚠ warn        echo             prod      │┃STATUS          CHECK          AGE      DETAIL       ┃
-│  ⚠ warn        foxtrot          staging   │┃✓ ok · stale    ssh.endpoint   7h ago                ┃
+│  ⚠ warn        echo             prod      │┃STATUS           CHECK          AGE      DETAIL      ┃
+│  ⚠ warn        foxtrot          staging   │┃✓ ok · stale     ssh.endpoint   7h ago               ┃
 │  ✓ ok          alpha            test    ⠋ │┃                                                     ┃
 │  ✓ ok          bravo            prod    ⠋ │┃                                                     ┃
 │  ✓ ok          charlie          prod      │┃                                                     ┃

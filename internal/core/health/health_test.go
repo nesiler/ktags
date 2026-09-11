@@ -564,7 +564,7 @@ func TestCancelledHungCheckNotRestarted(t *testing.T) {
 	var started atomic.Int32
 	running := make(chan struct{}, 1)
 	clock := newFakeClock()
-	e := newEngine(t, clock, Options{Customers: []string{"acme"}, Checks: []Check{{Name: "ssh", Severity: SeverityCritical, Run: func(context.Context, string) error {
+	e := newEngine(t, clock, Options{Customers: []string{"acme"}, Checks: []Check{{Name: "ssh", Severity: SeverityCritical, Runbook: "ssh-unreachable", Run: func(context.Context, string) error {
 		started.Add(1)
 		running <- struct{}{}
 		<-block
@@ -583,7 +583,8 @@ func TestCancelledHungCheckNotRestarted(t *testing.T) {
 		t.Fatalf("cancelled run: %v", err)
 	}
 	reports, err := e.Run(context.Background(), "acme")
-	if err != nil || reports[0].Checks[0].Detail != "not started: the previous run is still running" || started.Load() != 1 {
+	// #65 D4a: the refusal carries the check's runbook.
+	if err != nil || reports[0].Checks[0].Detail != "not started: the previous run is still running" || reports[0].Checks[0].Runbook != "ssh-unreachable" || started.Load() != 1 {
 		t.Fatalf("after the cancel: %+v %v, %d starts", reports, err, started.Load())
 	}
 }

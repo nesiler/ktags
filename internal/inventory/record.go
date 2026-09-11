@@ -43,8 +43,16 @@ type Cluster struct {
 	ID         string `yaml:"id"`
 	Name       string `yaml:"name"`
 	RancherURL string `yaml:"rancher_url"`
-	Nodes      []Node `yaml:"nodes"`
-	Access     Access `yaml:"access"`
+	// RancherCA is the public PEM CA the Rancher certificate chains to; empty means the system
+	// trust store.
+	RancherCA string `yaml:"rancher_ca,omitempty"`
+	// KubeAPIURL is the Kubernetes API server; empty means the kube checks are not configured.
+	KubeAPIURL string `yaml:"kube_api_url,omitempty"`
+	// KubeCA is the public PEM cluster CA; it needs KubeAPIURL. CAs are not secrets
+	// (security.md §1); private keys are refused.
+	KubeCA string `yaml:"kube_ca,omitempty"`
+	Nodes  []Node `yaml:"nodes"`
+	Access Access `yaml:"access"`
 }
 
 // Node is one machine of the cluster. ID is unique within the cluster and never changes.

@@ -127,6 +127,9 @@ func checkText(c service.CheckInfo) (string, tone) {
 	switch {
 	case c.Status == "ok":
 		return "✓ ok", toneOK
+	case c.Status == "not_configured":
+		// Not configured weighs as a warning whatever the severity (core/health).
+		return "⚠ not configured", toneWarn
 	case c.Severity == "warning":
 		return "⚠ " + warnWord(c.Status), toneWarn
 	default:

@@ -27,10 +27,11 @@ service clock ("now" in the JSON document).
 commands:
   list    show the fleet summary, then the evidence of every check
 
---json data: list {"now","customers":[{"id","name","environment","cluster","problem","state",
+--json data: list {"now","customers":[{"id","name","environment","cluster","problem","state","runbook",
 "connection":{"state","detail","measured_at"},"health","measured_at","trigger","stale",
 "interval_seconds","missed","checking","versions":{},"active_runs":[{"id","action"}],
-"checks":[{"check","severity","status","detail","measured_at","duration_ms"}]}]}
+"checks":[{"check","severity","status","detail","runbook","measured_at","duration_ms"}]}]}
+"runbook" names the runbook page of the check behind the state; it is absent when all is ok.
 
 next: ktags customer list
 `
@@ -58,10 +59,10 @@ func (e *env) fleetList() error {
 	w := e.text()
 	_, _ = fmt.Fprintln(w, fleetSummary(info.Customers))
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(tw, "  STATE\tCUSTOMER\tENV\tCONNECTION\tHEALTH\tMEASURED\tFRESHNESS\tVERSIONS\tACTIVE")
+	_, _ = fmt.Fprintln(tw, "  STATE\tCUSTOMER\tENV\tCONNECTION\tHEALTH\tRUNBOOK\tMEASURED\tFRESHNESS\tVERSIONS\tACTIVE")
 	for _, c := range info.Customers {
-		_, _ = fmt.Fprintf(tw, "  %s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-			c.State, c.ID, dash(c.Environment), c.Connection.State, c.Health,
+		_, _ = fmt.Fprintf(tw, "  %s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			c.State, c.ID, dash(c.Environment), c.Connection.State, c.Health, dash(c.Runbook),
 			measured(info.Now, c.MeasuredAt), freshness(c), versions(c.Versions), active(c))
 	}
 	_ = tw.Flush()
@@ -122,6 +123,9 @@ func evidenceLines(c service.FleetEntry) []string {
 	}
 	for _, k := range c.Checks {
 		line := fmt.Sprintf("%s %s %s (%s, measured %s, %dms)", c.ID, k.Check, k.Status, k.Severity, stamp(k.MeasuredAt), k.DurationMS)
+		if k.Runbook != "" {
+			line += " [runbook " + k.Runbook + "]"
+		}
 		if k.Detail != "" {
 			line += ": " + k.Detail
 		}

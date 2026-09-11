@@ -42,7 +42,16 @@ const (
 	StatusFailed Status = "failed"
 	// StatusTimeout: the check gave no answer within its timeout.
 	StatusTimeout Status = "timeout"
+	// StatusNotConfigured: the check has nothing to run with, such as credentials ktags cannot
+	// read yet. It weighs as a warning whatever the check's severity, and is never green.
+	StatusNotConfigured Status = "not_configured"
 )
+
+// ErrNotConfigured marks a check error, wrapped or bare, as not configured.
+var ErrNotConfigured = errors.New("not configured")
+
+// runbooker is an error that names the runbook of the failure.
+type runbooker interface{ Runbook() string }
 
 // Health is a customer's aggregate state.
 type Health string
@@ -71,8 +80,11 @@ type Check struct {
 	Severity Severity
 	// Timeout bounds one run of the check; zero means 30s.
 	Timeout time.Duration
-	// Run measures one customer. A nil error passes; the error text is the measured fact.
+	// Run measures one customer. A nil error passes; the error text is the measured fact. An
+	// error with a Runbook() string method names its runbook.
 	Run func(ctx context.Context, customer string) error
+	// Runbook is the runbook of a timeout, or of an error that names none.
+	Runbook string
 }
 
 // CheckResult is one check's outcome for one customer. Detail has passed the redactor.
@@ -81,6 +93,8 @@ type CheckResult struct {
 	Severity Severity
 	Status   Status
 	Detail   string
+	// Runbook is the stable runbook id of a result that is not ok.
+	Runbook string
 	// MeasuredAt is when the check started; Duration is how long it ran.
 	MeasuredAt time.Time
 	Duration   time.Duration
@@ -284,12 +298,12 @@ func (e *Engine) measure(ctx context.Context, customer string, trigger Trigger) 
 		if ctx.Err() != nil {
 			return Report{}, false
 		}
-		if res.Status != StatusOK {
-			if c.Severity == SeverityCritical {
-				r.Health = HealthFail
-			} else if r.Health == HealthOK {
-				r.Health = HealthWarn
-			}
+		switch {
+		case res.Status == StatusOK:
+		case c.Severity == SeverityCritical && res.Status != StatusNotConfigured:
+			r.Health = HealthFail
+		case r.Health == HealthOK:
+			r.Health = HealthWarn
 		}
 		r.Checks = append(r.Checks, res)
 	}
@@ -331,6 +345,7 @@ func (e *Engine) runCheck(ctx context.Context, c Check, customer string) CheckRe
 		e.mu.Unlock()
 		res.Status = StatusTimeout
 		res.Detail = "not started: the previous run is still running"
+		res.Runbook = c.Runbook
 		return res
 	}
 	e.alive[key] = true
@@ -351,11 +366,19 @@ func (e *Engine) runCheck(ctx context.Context, c Check, customer string) CheckRe
 		res.Status = StatusOK
 		if err != nil {
 			res.Status = StatusFailed
+			if errors.Is(err, ErrNotConfigured) {
+				res.Status = StatusNotConfigured
+			}
 			res.Detail = e.redact(err.Error())
+			res.Runbook = c.Runbook
+			if rb, ok := err.(runbooker); ok && rb.Runbook() != "" {
+				res.Runbook = rb.Runbook()
+			}
 		}
 	case <-e.clock.After(timeout):
 		res.Status = StatusTimeout
 		res.Detail = fmt.Sprintf("no answer within %s", timeout)
+		res.Runbook = c.Runbook
 	case <-ctx.Done():
 		// The caller reads ctx and discards this result.
 	}

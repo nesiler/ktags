@@ -260,6 +260,9 @@ func (m Model) healthLines(th theme, c *service.FleetEntry, inner int) []string 
 	}
 	state, to := stateText(*c, now)
 	lines := []string{"health      " + th.paint(to, state)}
+	if c.Runbook != "" {
+		lines = append(lines, "runbook     "+th.paint(to, c.Runbook))
+	}
 	if c.MeasuredAt != nil {
 		measured := "measured    " + agoPtr(now, c.MeasuredAt)
 		if c.Trigger != "" {
@@ -298,14 +301,18 @@ func (m Model) healthLines(th theme, c *service.FleetEntry, inner int) []string 
 	if len(c.Checks) == 0 {
 		return append(lines, th.paint(toneMuted, "no check results yet"))
 	}
-	lines = append(lines, th.paint(toneMuted, fit("STATUS", 15)+" "+fit("CHECK", 14)+" "+fit("AGE", 8)+" DETAIL"))
+	lines = append(lines, th.paint(toneMuted, fit("STATUS", 16)+" "+fit("CHECK", 14)+" "+fit("AGE", 8)+" DETAIL"))
 	for _, k := range c.Checks {
 		text, to := checkText(k)
 		// A stale result says so in words; grey alone would carry the state by colour.
 		if c.Stale {
 			text, to = text+" · stale", toneMuted
 		}
-		row := th.paint(to, fit(text, 15)) + " " + fit(k.Check, 14) + " " + fit(ago(now, k.MeasuredAt), 8) + " " + k.Detail
+		row := th.paint(to, fit(text, 16)) + " " + fit(k.Check, 14) + " " + fit(ago(now, k.MeasuredAt), 8) + " "
+		if k.Runbook != "" {
+			row += k.Runbook + " "
+		}
+		row += k.Detail
 		lines = append(lines, fit(row, inner))
 	}
 	return lines

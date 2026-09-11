@@ -22,6 +22,8 @@ type healthConfig struct {
 	interval time.Duration
 	// clock drives the engine, its schedule and the service's fleet stamp; nil is the system clock.
 	clock schedule.Clock
+	// connection is the customers' measured connection state; nil leaves it unknown.
+	connection func(customer string) fleet.ConnectionState
 }
 
 // newHealthEngine builds the engine over the customers whose inventory record loads. A refused
@@ -70,20 +72,26 @@ func validCustomers(ctx context.Context, dataRoot string) ([]string, error) {
 	return ids, nil
 }
 
-// healthSource hands the engine's cache to the fleet summary. It only reads the cache.
+// healthSource hands the engine's cache and the probe's connection state to the fleet
+// summary. It only reads memory.
 //
-// Connection results are not composed yet, so the connection is unknown. A fresh ok health
-// result next to an unknown connection stays ok: the checks that produced it reached the
-// customer. Only a measured unreachable connection demotes a customer (fleet.StateOf).
+// Without a connection source the connection is unknown. A fresh ok health result next to an
+// unknown connection stays ok: the checks that produced it reached the customer. Only a
+// measured unreachable connection demotes a customer (fleet.StateOf).
 type healthSource struct {
-	views func() []health.View
+	views      func() []health.View
+	connection func(customer string) fleet.ConnectionState
 }
 
 func (s healthSource) Measurements() []fleet.Measurement {
 	views := s.views()
 	out := make([]fleet.Measurement, 0, len(views))
 	for _, v := range views {
-		out = append(out, fleet.Measurement{Health: v, Connection: fleet.ConnectionState{State: fleet.ConnUnknown}})
+		conn := fleet.ConnectionState{State: fleet.ConnUnknown}
+		if s.connection != nil {
+			conn = s.connection(v.Customer)
+		}
+		out = append(out, fleet.Measurement{Health: v, Connection: conn})
 	}
 	return out
 }

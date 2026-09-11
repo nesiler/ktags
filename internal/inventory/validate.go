@@ -1,6 +1,9 @@
 package inventory
 
 import (
+	"bytes"
+	"crypto/x509"
+	"encoding/pem"
 	"fmt"
 	"net/netip"
 	"net/url"
@@ -10,7 +13,11 @@ import (
 	"unicode/utf8"
 )
 
-const maxNameRunes = 100
+const (
+	maxNameRunes = 100
+	// maxCABytes bounds a pinned CA bundle; a real one is a few KiB.
+	maxCABytes = 64 << 10
+)
 
 var (
 	idPattern      = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,38}[a-z0-9]$`)
@@ -43,7 +50,15 @@ func Validate(r Record) error {
 	c := r.Cluster
 	v.id("ktags_cluster.id", c.ID)
 	v.name("ktags_cluster.name", c.Name)
-	v.rancherURL("ktags_cluster.rancher_url", c.RancherURL)
+	v.httpsURL("ktags_cluster.rancher_url", c.RancherURL, "https://rancher.example.com")
+	v.ca("ktags_cluster.rancher_ca", c.RancherCA)
+	if c.KubeAPIURL != "" {
+		v.httpsURL("ktags_cluster.kube_api_url", c.KubeAPIURL, "https://203.0.113.11:6443")
+	}
+	v.ca("ktags_cluster.kube_ca", c.KubeCA)
+	if c.KubeCA != "" && c.KubeAPIURL == "" {
+		v.add("ktags_cluster.kube_ca", "needs ktags_cluster.kube_api_url; set it or remove the CA")
+	}
 
 	if len(c.Nodes) == 0 {
 		v.add("ktags_cluster.nodes", "must list at least one node")
@@ -187,16 +202,60 @@ func validHost(value string) bool {
 	return strings.Trim(labels[len(labels)-1], "0123456789") != ""
 }
 
-// rancherURL accepts an https URL with a host and an optional path. Credentials, queries and
+// ca accepts an empty value or PEM CERTIFICATE blocks that parse as X.509, with nothing but
+// white space around them. A private key is refused as a secret; the value never reaches the
+// error.
+func (v *validator) ca(field, value string) {
+	if value == "" {
+		return
+	}
+	if len(value) > maxCABytes {
+		v.add(field, fmt.Sprintf("must be at most %d KiB", maxCABytes>>10))
+		return
+	}
+	const onlyCerts = "must be PEM CERTIFICATE blocks and nothing else"
+	rest := []byte(value)
+	certs := 0
+	for len(bytes.TrimSpace(rest)) > 0 {
+		// pem.Decode skips text before a block; anything there is refused, not ignored.
+		if i := bytes.Index(rest, []byte("-----BEGIN")); i < 0 || len(bytes.TrimSpace(rest[:i])) > 0 {
+			v.add(field, onlyCerts)
+			return
+		}
+		block, next := pem.Decode(rest)
+		switch {
+		case block == nil:
+			v.add(field, onlyCerts)
+			return
+		case strings.Contains(block.Type, "PRIVATE KEY"):
+			v.add(field, "looks like a secret (a private key); a CA field holds public certificates only")
+			return
+		case block.Type != "CERTIFICATE" || len(block.Headers) > 0:
+			v.add(field, onlyCerts)
+			return
+		}
+		if _, err := x509.ParseCertificate(block.Bytes); err != nil {
+			v.add(field, "holds a certificate that does not parse")
+			return
+		}
+		certs++
+		rest = next
+	}
+	if certs == 0 {
+		v.add(field, onlyCerts)
+	}
+}
+
+// httpsURL accepts an https URL with a host and an optional path. Credentials, queries and
 // fragments are refused: they are where tokens hide in pasted URLs.
-func (v *validator) rancherURL(field, value string) {
+func (v *validator) httpsURL(field, value, example string) {
 	if v.secret(field, value) {
 		return
 	}
 	u, err := url.Parse(value)
 	switch {
 	case err != nil || u.Scheme != "https" || u.Opaque != "":
-		v.add(field, "must be an https URL such as https://rancher.example.com")
+		v.add(field, "must be an https URL such as "+example)
 	case u.User != nil:
 		v.add(field, "looks like a secret (credentials in the URL); store them with the secret store")
 	case u.RawQuery != "" || u.ForceQuery || u.Fragment != "":
