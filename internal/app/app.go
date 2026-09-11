@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	goruntime "runtime"
+	"slices"
 	"syscall"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 	"github.com/nesiler/ktags/internal/actions"
 	"github.com/nesiler/ktags/internal/cli"
 	"github.com/nesiler/ktags/internal/core/domain"
+	"github.com/nesiler/ktags/internal/core/health"
 	coreruntime "github.com/nesiler/ktags/internal/core/runtime"
 	"github.com/nesiler/ktags/internal/doctor"
 	"github.com/nesiler/ktags/internal/launchd"
@@ -56,6 +58,9 @@ type deps struct {
 	launcher func(paths.Roots) service.Launcher
 	// actions are registered in the service in addition to the built-in ones.
 	actions []actions.Action
+	// health composes the health engine and the health action into the service; nil measures
+	// nothing. No real check adapter exists yet, so only tests set it.
+	health *healthConfig
 	// timeout bounds the lifecycle waits; zero takes the service default.
 	timeout time.Duration
 	// stdin answers confirmations when terminal is set; interrupt detaches a followed run.
@@ -213,21 +218,37 @@ func (c serviceControl) Run(ctx context.Context, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	registry, err := actions.NewRegistry(c.deps.actions...)
-	if err != nil {
-		return err
-	}
-	srv, err := service.Listen(ctx, c.roots.Runtime.Path, service.Options{
-		Registry: registry,
+	registered := c.deps.actions
+	opts := service.Options{
 		Store:    store,
 		DataRoot: c.roots.Data.Path,
 		Build:    c.build,
 		Redact:   mask.Mask,
 		// launchd writes the service's stdout to the service log.
 		Logger: slog.New(slog.NewTextHandler(stdout, nil)),
-	})
+	}
+	var engine *health.Engine
+	if c.deps.health != nil {
+		if engine, err = newHealthEngine(ctx, c.deps.health, c.roots.Data.Path); err != nil {
+			return err
+		}
+		registered = append(slices.Clone(registered), actions.NewHealth(engine))
+		opts.Fleet = healthSource{views: engine.Views}
+		opts.Clock = c.deps.health.clock
+	}
+	if opts.Registry, err = actions.NewRegistry(registered...); err != nil {
+		return err
+	}
+	srv, err := service.Listen(ctx, c.roots.Runtime.Path, opts)
 	if err != nil {
 		return err
+	}
+	// The schedule starts once the socket is ours and ends with the service.
+	if engine != nil {
+		healthCtx, stopHealth := context.WithCancel(context.Background())
+		engine.Start(healthCtx)
+		defer engine.Wait()
+		defer stopHealth()
 	}
 	served := make(chan error, 1)
 	go func() { served <- srv.Serve() }()
