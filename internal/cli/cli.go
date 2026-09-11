@@ -35,8 +35,9 @@ Commands other than service start the ktags service when it is not running. With
 they never start it; they fail with exit 1 instead, so a document never describes a service
 the command itself started.
 
-exit codes: 0 success · 1 usage, validation or environment · 2 confirmation refused or
-conflict · 3 the run failed or was cancelled
+exit codes: 0 success · 1 usage, validation or environment · 2 confirmation refused, or a
+conflict with the service's state (stop with active runs, cancel of a finished run) · 3 the
+run failed or was cancelled
 
 next: ktags action list
 `

@@ -33,6 +33,9 @@ var testCustomers = []service.CustomerInfo{
 	{ID: "acme", Name: "Acme", Environment: "prod", Cluster: "acme-1", Nodes: 3},
 	{ID: "beta", Name: "Beta", Environment: "staging", Cluster: "beta-1", Nodes: 1},
 	{ID: "broken", Problem: "cannot parse the customer record at line 3"},
+	// Inventory validation refuses an unknown environment today; the CLI must still treat it
+	// as prod, not as "not prod".
+	{ID: "gamma", Name: "Gamma", Environment: "", Cluster: "gamma-1", Nodes: 1},
 }
 
 // newFake returns a running service whose next run reports two events and succeeds, and which
@@ -50,7 +53,7 @@ func newFake() (*fakeControl, *fakeClient) {
 	r7 := service.RunInfo{ID: "r7", Action: "doctor", Target: service.Target{Kind: "global"}, Status: "succeeded", LastEventID: 3,
 		Result: &service.ResultInfo{Status: "succeeded", Summary: "all green"}}
 	c.runs["r7"] = &fakeRun{info: r7, final: r7, events: []service.Event{{ID: 1, Message: "e1"}, {ID: 2, Message: "e2"}, {ID: 3, Message: "e3"}}}
-	for id, customer := range map[string]string{"rB": "beta", "rP": "acme", "rG": "gone"} {
+	for id, customer := range map[string]string{"rB": "beta", "rP": "acme", "rG": "gone", "rU": "gamma"} {
 		info := service.RunInfo{ID: id, Action: "cluster upgrade", Target: service.Target{Kind: "customer", Customer: customer}, Status: "running", LastEventID: 1}
 		c.runs[id] = &fakeRun{info: info, block: true, events: []service.Event{{ID: 1, Message: "upgrading"}}}
 	}
@@ -171,6 +174,33 @@ func TestActionRunFollowsToResult(t *testing.T) {
 	code, stdout, _ = ktags(control, call{}, "action", "run", "node", "drain", "beta", "n1", "--yes")
 	if code != 0 || client.started[2].target != (service.Target{Kind: "node", Customer: "beta", Node: "n1"}) {
 		t.Fatalf("exit %d, started %+v\n%s", code, client.started[2], stdout)
+	}
+
+	// A value that is itself a CLI flag stays a value when given in one word.
+	_, _, _ = ktags(control, call{}, "action", "run", "test", "echo", "beta", "--text=--yes")
+	if got := client.started[3].args; !reflect.DeepEqual(got, map[string]any{"text": "--yes"}) {
+		t.Fatalf("args %v", got)
+	}
+}
+
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("stdout is closed") }
+
+// A --json document that cannot be written is a failure, never exit 0.
+func TestDocumentWriteFails(t *testing.T) {
+	for _, args := range [][]string{{"version"}, {"run", "watch", "r7"}, {"service", "status"}} {
+		control, _ := newFake()
+		var stderr bytes.Buffer
+		code := Run(context.Background(), fakeRuntime{control: control}, append(args, "--json"), Streams{Out: failingWriter{}, Err: &stderr})
+		if code != 1 || !strings.Contains(stderr.String(), "ktags: stdout is closed") {
+			t.Fatalf("%q: exit %d, stderr %q; want 1 and the write error", args, code, stderr.String())
+		}
+	}
+	var stderr bytes.Buffer
+	code := Run(context.Background(), fakeRuntime{control: &fakeControl{}}, []string{"service", "status", "--json"}, Streams{Out: failingWriter{}, Err: &stderr})
+	if code != 1 || !strings.Contains(stderr.String(), "ktags: stdout is closed") {
+		t.Fatalf("service not running: exit %d, stderr %q; want 1 and the write error", code, stderr.String())
 	}
 }
 
@@ -306,7 +336,11 @@ func TestCancel(t *testing.T) {
 		{"prod refuses --yes", "rP", call{}, []string{"--yes"}, 2, false, "--yes does not replace it"},
 		{"prod typed name", "rP", call{stdin: "acme\n", terminal: true}, []string{"--yes"}, 0, true, `Type "acme" to continue`},
 		{"prod wrong name", "rP", call{stdin: "beta\n", terminal: true}, nil, 2, false, "the typed name does not match"},
+		{"prod empty answer", "rP", call{terminal: true}, nil, 2, false, "the typed name does not match"},
+		{"prod prefix of the name", "rP", call{stdin: "ac\n", terminal: true}, nil, 2, false, "the typed name does not match"},
+		{"prod name in another case", "rP", call{stdin: "ACME\n", terminal: true}, nil, 2, false, "the typed name does not match"},
 		{"customer gone counts as prod", "rG", call{}, []string{"--yes"}, 2, false, "--yes does not replace it"},
+		{"unknown environment counts as prod", "rU", call{}, []string{"--yes"}, 2, false, "--yes does not replace it"},
 		{"finished run", "r7", call{}, []string{"--yes"}, 2, false, "run r7 is succeeded; only an active run can be cancelled"},
 		{"unknown run", "nope", call{}, []string{"--yes"}, 1, false, "run: no run nope"},
 	}
@@ -344,10 +378,16 @@ func TestConfirmation(t *testing.T) {
 		{"answered y", call{stdin: "y\n", terminal: true}, upgrade("beta"), 0, true, `run "cluster upgrade" on beta (staging)` + "\nContinue? [y/N]"},
 		{"answered yes", call{stdin: "yes\n", terminal: true}, upgrade("beta"), 0, true, ""},
 		{"answered no", call{stdin: "n\n", terminal: true}, upgrade("beta"), 2, false, "not confirmed"},
+		{"answered a word starting with y", call{stdin: "yep\n", terminal: true}, upgrade("beta"), 2, false, "not confirmed"},
 		{"no answer", call{terminal: true}, upgrade("beta"), 2, false, "not confirmed"},
 		{"prod refuses --yes", call{}, upgrade("acme", "--yes"), 2, false, "--yes does not replace it"},
 		{"prod typed name", call{stdin: "acme\n", terminal: true}, upgrade("acme", "--yes"), 0, true, `Type "acme" to continue`},
 		{"prod answered y", call{stdin: "y\n", terminal: true}, upgrade("acme"), 2, false, "the typed name does not match"},
+		{"prod empty answer", call{terminal: true}, upgrade("acme"), 2, false, "the typed name does not match"},
+		{"prod prefix of the name", call{stdin: "ac\n", terminal: true}, upgrade("acme"), 2, false, "the typed name does not match"},
+		{"prod name in another case", call{stdin: "ACME\n", terminal: true}, upgrade("acme"), 2, false, "the typed name does not match"},
+		{"unknown environment counts as prod", call{}, upgrade("gamma", "--yes"), 2, false, "--yes does not replace it"},
+		{"unknown environment typed name", call{stdin: "gamma\n", terminal: true}, upgrade("gamma"), 0, true, `Type "gamma" to continue`},
 		{"destructive outside prod needs the name", call{stdin: "y\n", terminal: true}, []string{"action", "run", "cluster", "decommission", "beta"}, 2, false, `Type "beta" to continue`},
 		{"destructive typed name", call{stdin: "beta\n", terminal: true}, []string{"action", "run", "cluster", "decommission", "beta"}, 0, true, ""},
 		{"unknown effect needs the name", call{}, []string{"action", "run", "mystery", "--yes"}, 2, false, "--yes does not replace it"},
@@ -377,7 +417,10 @@ func TestUnknownInputs(t *testing.T) {
 		{"unknown action", []string{"action", "run", "nope"}, "unknown_action", []string{`ktags: no such action "nope"`, "next: ktags action list"}},
 		{"unknown action to show", []string{"action", "show", "test"}, "unknown_action", []string{`no such action "test"`, "next: ktags action list"}},
 		{"show with extra words", []string{"action", "show", "test", "echo", "extra"}, "unknown_action", []string{`no such action "test echo extra"`}},
+		{"show without an action", []string{"action", "show"}, "usage", []string{"missing <action>", "usage: ktags action show <action>"}},
 		{"unknown customer", echo("zeta", "--text", "x"), "unknown_customer", []string{`ktags: no customer "zeta" in the inventory`, "next: ktags customer list"}},
+		{"prefix of a customer", echo("ac", "--text", "x"), "unknown_customer", []string{`ktags: no customer "ac" in the inventory`}},
+		{"abbreviated argument", echo("beta", "--text", "x", "--lou"), "unknown_argument", []string{`action "test echo" has no argument "--lou"`}},
 		{"refused customer record", echo("broken", "--text", "x"), "customer_refused", []string{`the record of customer "broken" is refused: cannot parse`, "then check it with: ktags customer list"}},
 		{"unknown argument", echo("beta", "--text", "x", "--colour", "red"), "unknown_argument", []string{`action "test echo" has no argument "--colour"`, "next: ktags action show test echo"}},
 		{"single-dash argument", echo("beta", "--text", "x", "-v"), "unknown_argument", []string{`has no argument "-v"`}},

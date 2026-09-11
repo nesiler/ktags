@@ -27,6 +27,8 @@ ask [y/N] (--yes answers it); any change on prod and destructive actions need th
 name typed in a terminal, and --yes never replaces it. An interrupt (Ctrl-C) or --detach
 leaves the run going in the service; reconnect with: ktags run watch <run>.
 run exits 0 when the run succeeded or was detached, 3 when it failed or was cancelled.
+--json, --yes and --detach are read as flags wherever they stand, also after --<argument>;
+give an argument such a value in one word: --<argument>=--yes.
 
 --json data: list {"actions":[action]} · show {"action","usage"} · run {"run","events"}
 (kind run.result), {"run"} with --detach (kind run.started), {"run_id","last_event_id"}
