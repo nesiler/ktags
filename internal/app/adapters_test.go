@@ -139,15 +139,38 @@ func TestRealHealth(t *testing.T) {
 }
 
 // A health composition that cannot be built refuses the service start instead of serving
-// without health.
+// without health. The foreground run can block forever, so the wait is bounded: a service that
+// starts anyway ends the test red in seconds instead of hanging until the go test timeout.
 func TestServiceRunRefusesAFailedHealthComposition(t *testing.T) {
 	h := newHarness(t)
 	h.deps.healthFor = func(paths.Roots, paths.Env) (*healthConfig, error) {
 		return nil, errTest("the settings file is refused")
 	}
-	code, _, stderr := h.ktags("service", "run")
-	if code != 1 || !strings.Contains(stderr, "the settings file is refused") {
-		t.Fatalf("service run exited %d\n%s", code, stderr)
+	type result struct {
+		code   int
+		stderr string
+	}
+	ran := make(chan result, 1)
+	go func() {
+		code, _, stderr := h.ktags("service", "run")
+		ran <- result{code, stderr}
+	}()
+	var got result
+	select {
+	case got = <-ran:
+	case <-time.After(10 * time.Second):
+		// The service started instead of refusing. Ask it to stop so the run can return, then
+		// report red. Draining is bounded too: a service that ignores the stop must not turn
+		// this regression back into a hang.
+		_, _ = h.client.Stop(context.Background(), true)
+		select {
+		case <-ran:
+		case <-time.After(10 * time.Second):
+		}
+		t.Fatal("service run did not return within 10s: the service served without its health composition")
+	}
+	if got.code != 1 || !strings.Contains(got.stderr, "the settings file is refused") {
+		t.Fatalf("service run exited %d\n%s", got.code, got.stderr)
 	}
 	if _, err := os.Stat(h.socket); err == nil {
 		t.Fatal("the service listened without its health composition")
