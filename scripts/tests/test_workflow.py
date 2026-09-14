@@ -5,6 +5,7 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import tempfile
 import threading
@@ -584,6 +585,38 @@ class ClaudeTrustTests(unittest.TestCase):
         self.assertIn("/w/ktags-74-dev", report["summary"])
         self.assertTrue((self.state / "killed").exists())
 
+    def test_wait_default_step_cap_bounds_the_report(self):
+        # #77-K1: the test above overrides KTAGS_WAIT_STEP_MAX to stay fast, so nothing protected
+        # the default. Here the variable is removed from the child environment, so the sleep after
+        # the first poll uses the real default site in session.sh. The screen only appears once
+        # that poll found no screen, so the default is what the whole wait is spent on: a default
+        # at or below WAIT_REPORT_BOUND keeps waited_seconds inside the bound the wait documents,
+        # and a larger one overruns it. The timeout is far above the bound so a raised default
+        # fails on the assertion rather than on an ambiguous timeout.
+        run = self.make_run("ktags-74-dev", "claude")
+        env = {key: value for key, value in self.env.items() if key != "KTAGS_WAIT_STEP_MAX"}
+        self.assertNotIn("KTAGS_WAIT_STEP_MAX", env)
+        bound = self.report_bound()
+        timer = threading.Timer(1.5, (self.state / "pane").write_text, args=(TRUST_SCREEN,))
+        timer.start()
+        result = subprocess.run(
+            ["bash", str(ROOT / "scripts/session.sh"), "wait", "ktags-74-dev",
+             "--interval", "90", "--timeout", "120"],
+            capture_output=True, text=True, env=env)
+        timer.join()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        outcome = json.loads(result.stdout)
+        self.assertEqual(outcome["outcome"], "result")
+        self.assertLessEqual(outcome["waited_seconds"], bound)
+        self.assertEqual(json.loads((run / "result.json").read_text())["status"], "refused")
+
+    def report_bound(self):
+        """The bound `wait` documents, read from session.sh so a test cannot invent its own."""
+        text = (ROOT / "scripts" / "session.sh").read_text()
+        match = re.search(r'^WAIT_REPORT_BOUND="\$\{KTAGS_WAIT_REPORT_BOUND:-(\d+)\}"$', text, re.M)
+        self.assertIsNotNone(match, "session.sh must define WAIT_REPORT_BOUND")
+        return int(match.group(1))
+
     def test_wait_ignores_quoted_trust_text_and_other_agents(self):
         footer = "\n⏵⏵ bypass permissions on (shift+tab to cycle)\n"
         cases = (("ktags-74-dev", "claude", TRUST_SCREEN + footer),        # child quoting the screen
@@ -613,6 +646,32 @@ class ClaudeTrustTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("Claude trust for ktags-76-dev not revoked", result.stderr)
         self.assertFalse((self.wt / "ktags-76-dev").exists())
+
+    def test_clean_hint_names_the_granted_key(self):
+        # #77-K2: the grant is keyed on `<realpath $WT_ROOT>/<key>`, so the manual-cleanup hint
+        # must name that key, not the unresolved `$WT_ROOT` path.
+        link = self.base / "wt-link"
+        link.symlink_to(self.wt)
+        self.assertNotEqual(str(link), os.path.realpath(self.wt))
+        (self.wt / "ktags-74-dev").mkdir()
+        (self.runs / "ktags-74-dev").mkdir()
+        self.config.write_text("{not json")
+        result = self.run_script("clean", "--issue", "74", "--force", "--purge",
+                                 KTAGS_WORKTREE_DIR=str(link))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(f'projects["{os.path.realpath(self.wt)}/ktags-74-dev"]', result.stderr)
+        self.assertNotIn(str(link), result.stderr)
+
+    def test_claude_trust_key_is_the_key_grant_and_hint_share(self):
+        # The hint is not special-cased: grant, revoke and the hint resolve through one helper.
+        (self.wt / "ktags-74-dev").mkdir()
+        link = self.base / "wt-link"
+        link.symlink_to(self.wt)
+        resolved = subprocess.check_output(
+            ["bash", "-c", 'source "$1"; claude_trust_key "$2"', "test",
+             str(ROOT / "scripts/session.sh"), "ktags-74-dev"],
+            text=True, env={**self.env, "KTAGS_WORKTREE_DIR": str(link)}).strip()
+        self.assertEqual(resolved, os.path.realpath(self.wt) + "/ktags-74-dev")
 
 
 class GuardInventoryContractTests(unittest.TestCase):
