@@ -629,6 +629,35 @@ class ClaudeTrustTests(unittest.TestCase):
         self.assertLessEqual(outcome["waited_seconds"], bound)
         self.assertEqual(json.loads((run / "result.json").read_text())["status"], "refused")
 
+    def test_wait_step_follows_a_lowered_report_budget(self):
+        # #85: the coupling itself, not the 60 s default. The budget is the test's own input, so the
+        # assertion is on the relationship and not on any constant in session.sh. The step becomes
+        # BUDGET // 2, so a screen appearing at ~1.5 s is reported around 5 s; the same run with the
+        # coupling replaced by a literal step of 30 misses this window by 5x, which is what makes a
+        # constant a visible regression instead of an invisible one.
+        BUDGET = 10
+        run = self.make_run("ktags-74-dev", "claude")
+        # KTAGS_WAIT_STEP_MAX is removed rather than set: the budget alone must hold, and the
+        # operator ceiling stays a separate concept that this test never becomes a function of.
+        env = {key: value for key, value in self.env.items() if key != "KTAGS_WAIT_STEP_MAX"}
+        self.assertNotIn("KTAGS_WAIT_STEP_MAX", env)
+        timer = threading.Timer(1.5, (self.state / "pane").write_text, args=(TRUST_SCREEN,))
+        timer.start()
+        result = subprocess.run(
+            ["bash", str(ROOT / "scripts/session.sh"), "wait", "ktags-74-dev",
+             "--interval", "90", "--timeout", str(BUDGET * 6)],
+            capture_output=True, text=True, env={**env, "KTAGS_WAIT_REPORT_BOUND": str(BUDGET)})
+        timer.join()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        outcome = json.loads(result.stdout)
+        self.assertEqual(outcome["outcome"], "result")
+        step = BUDGET // 2
+        self.assertGreaterEqual(outcome["waited_seconds"], step,
+                                "the first poll must find no screen, so the wait spends a full step")
+        self.assertLessEqual(outcome["waited_seconds"], step + 2,
+                             "a lowered budget must lower the poll step it enforces")
+        self.assertEqual(json.loads((run / "result.json").read_text())["status"], "refused")
+
     def report_bound(self):
         """The bound `wait` documents, read from session.sh so a test cannot invent its own."""
         text = (ROOT / "scripts" / "session.sh").read_text()
