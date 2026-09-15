@@ -659,6 +659,20 @@ class ClaudeTrustTests(unittest.TestCase):
         waited = [(BUDGET, self.waited_seconds_until_trust_screen(
             BUDGET, {**env, "KTAGS_WAIT_STEP_MAX": str(BUDGET)}, key=f"ktags-74-dev-r{i}"))
             for i, BUDGET in enumerate(budget_sample)]
+        # Every budget in a contiguous range, not a handful of samples. A derivation that ignores
+        # the budget across part of its range keeps any finite set of *sampled* points correct —
+        # one sample left a window for a floor at budget 10, three samples left the band [20, 60)
+        # for a constant — and the real `wait` runs above cost ~30 s each, so widening that sample
+        # is the wrong lever. This part calls the helper directly: an arithmetic relationship read
+        # over the whole range in milliseconds, with no gap for a band to hide in. The ceiling is
+        # set to the budget on every point so the clamp below it is not what is being measured.
+        for budget in range(2, 121):
+            self.assertEqual(
+                self.derived_step(budget, budget), budget // 2,
+                f"wait_poll_step_max() must halve budget {budget}; a derivation that ignores the "
+                f"budget for part of its range leaves that band unreported however many budgets "
+                f"the `wait` samples above check")
+
         for BUDGET, seconds in waited:
             self.assertAlmostEqual(
                 seconds, BUDGET // 2, delta=1,
@@ -706,6 +720,24 @@ class ClaudeTrustTests(unittest.TestCase):
         self.assertEqual(outcome["outcome"], "result")
         self.assertEqual(json.loads((run / "result.json").read_text())["status"], "refused")
         return outcome["waited_seconds"]
+
+    def derived_step(self, budget, ceiling):
+        """`wait_poll_step_max()`'s own answer for one budget and ceiling, read by sourcing it.
+
+        Sourcing session.sh and calling the helper is what makes this cheap: the relationship is
+        an arithmetic one, so it can be swept over every budget in a range in milliseconds, where
+        each real `wait` costs ~30 s. `WAIT_REPORT_BOUND` is read from the source, so a test cannot
+        invent its own budget. The environment is a throwaway shell: nothing here touches a
+        worktree, a tmux pane or a run directory.
+        """
+        script = (
+            f'KTAGS_WAIT_REPORT_BOUND=%s KTAGS_WAIT_STEP_MAX=%s; '
+            f'. "%s" >/dev/null 2>&1; wait_poll_step_max'
+            % (budget, ceiling, ROOT / "scripts" / "session.sh")
+        )
+        out = subprocess.run(["bash", "-c", script], capture_output=True, text=True)
+        self.assertEqual(out.returncode, 0, f"wait_poll_step_max failed: {out.stderr}")
+        return int(out.stdout.strip())
 
     def report_bound(self):
         """The bound `wait` documents, read from session.sh so a test cannot invent its own."""
