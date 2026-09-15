@@ -561,7 +561,8 @@ class ClaudeTrustTests(unittest.TestCase):
 
     def make_run(self, key, agent):
         run = self.runs / key
-        run.mkdir()
+        if not run.exists():
+            run.mkdir()
         (run / "meta.json").write_text(json.dumps({"session": key, "agent": agent,
                                                    "cwd": "/w/" + key, "started_epoch": 0}))
         (self.state / "started").touch()
@@ -628,6 +629,115 @@ class ClaudeTrustTests(unittest.TestCase):
         self.assertEqual(outcome["outcome"], "result")
         self.assertLessEqual(outcome["waited_seconds"], bound)
         self.assertEqual(json.loads((run / "result.json").read_text())["status"], "refused")
+
+    def test_wait_step_follows_a_lowered_report_budget(self):
+        # #85: the coupling itself, not the 60 s default. The budget is the test's own input, so the
+        # assertion is on the relationship and not on any constant in session.sh: the wait's poll
+        # step is `BUDGET // 2`, and a screen appearing at ~1.5 s is therefore reported after one
+        # full step of that size.
+        #
+        # The relationship is asserted at three budgets rather than the one this test used to use,
+        # because one budget cannot tell `BUDGET // 2` from a constant that happens to land inside
+        # the tolerance — and cannot tell it from a *floor* either. A `[[ "$derived" -ge 7 ]] ||
+        # derived=7` clamp left budget 10 at 5 s, inside the old window of [5, 7], so it kept the
+        # single point green while ignoring the budget for every budget under twice the floor:
+        # `KTAGS_WAIT_REPORT_BOUND=4` then sleeps 7 s and the bound is implied by a constant again,
+        # which is the defect #85 exists to close. Steep samples (10, 60, 120) make the shape itself
+        # the thing under test: no constant and no floor passes at all three points at once.
+        #
+        # KTAGS_WAIT_STEP_MAX is set to the budget itself on every sample, never left to its
+        # default. Removing it, as this test used to, makes the samples above 30 s unreadable: the
+        # ceiling's default of 15 is below `BUDGET // 2` there, so the clamp — a documented and
+        # settled rule — is what the wait spends and the budget relationship would look absent
+        # exactly where it is strongest. Setting the ceiling to the budget keeps it a ceiling that
+        # does not bind, so what remains measured is the budget's own half. The assertion is
+        # therefore on the budget alone and never on the value of KTAGS_WAIT_STEP_MAX, which is
+        # #85-K2: no sample reads or asserts that value.
+        env = {key: value for key, value in self.env.items() if key != "KTAGS_WAIT_STEP_MAX"}
+        self.assertNotIn("KTAGS_WAIT_STEP_MAX", env)
+        budget_sample = (10, 60, 120)
+        waited = [(BUDGET, self.waited_seconds_until_trust_screen(
+            BUDGET, {**env, "KTAGS_WAIT_STEP_MAX": str(BUDGET)}, key=f"ktags-74-dev-r{i}"))
+            for i, BUDGET in enumerate(budget_sample)]
+        # Every budget in a contiguous range, not a handful of samples. A derivation that ignores
+        # the budget across part of its range keeps any finite set of *sampled* points correct —
+        # one sample left a window for a floor at budget 10, three samples left the band [20, 60)
+        # for a constant — and the real `wait` runs above cost ~30 s each, so widening that sample
+        # is the wrong lever. This part calls the helper directly: an arithmetic relationship read
+        # over the whole range in milliseconds, with no gap for a band to hide in. The ceiling is
+        # set to the budget on every point so the clamp below it is not what is being measured.
+        for budget in range(2, 121):
+            self.assertEqual(
+                self.derived_step(budget, budget), budget // 2,
+                f"wait_poll_step_max() must halve budget {budget}; a derivation that ignores the "
+                f"budget for part of its range leaves that band unreported however many budgets "
+                f"the `wait` samples above check")
+
+        for BUDGET, seconds in waited:
+            self.assertAlmostEqual(
+                seconds, BUDGET // 2, delta=1,
+                msg=f"budget {BUDGET} must sleep about {BUDGET // 2} s per poll, "
+                    f"got {seconds} s; a step that ignores the budget shows here")
+        # The tolerance is 1 s, not the 2 s this test used to allow: a window of [BUDGET//2 - 1,
+        # BUDGET//2 + 1] leaves no room for a floor at `BUDGET//2 + 2`, so `derived=7` fails at
+        # budget 10 (7 s against a wanted 5 s) instead of landing inside the window. Measured
+        # jitter over six repeats of the budget-10 sample is +1 s at worst (a poll boundary crossed
+        # while the screen is written), so 1 s is the tightest tolerance that is still stable.
+        #
+        # The two ends together, so that a step which stops following the budget is named as a
+        # broken relationship and not just as one out-of-tolerance point.
+        self.assertLess(waited[0][1], waited[-1][1],
+                        "the wait must grow with the budget, not sit at a constant step")
+
+    def waited_seconds_until_trust_screen(self, budget, env, key="ktags-74-dev"):
+        """One `wait` run whose trust screen appears at 1.5 s, returning its `waited_seconds`.
+
+        The first poll always finds no screen — the screen is written at 1.5 s and the first step
+        at every sampled budget is 2 s or more — so the wait spends a full step sleeping, and the
+        step it spent is what the caller reads. `--interval 90` is asked for on purpose: it is far
+        above every sample, so what the wait sleeps is the derived step and not the caller's.
+
+        Each sample passes its own session key, because a run's `wait` ends by writing
+        `result.json` into the run directory: a reused directory makes the next sample find that
+        file on its very first poll, break out before sleeping, and read 0 s — which would make
+        the measurement say "the step is 0" rather than "the step is the budget's half".
+
+        The caller passes `KTAGS_WAIT_REPORT_BOUND` in `env`; nothing here reads the ceiling, so a
+        change to `KTAGS_WAIT_STEP_MAX` alone cannot move what this helper returns.
+        """
+        (self.state / "pane").unlink(missing_ok=True)
+        (self.state / "killed").unlink(missing_ok=True)
+        run = self.make_run(key, "claude")
+        timer = threading.Timer(1.5, (self.state / "pane").write_text, args=(TRUST_SCREEN,))
+        timer.start()
+        result = subprocess.run(
+            ["bash", str(ROOT / "scripts/session.sh"), "wait", key,
+             "--interval", "90", "--timeout", str(budget * 6)],
+            capture_output=True, text=True, env={**env, "KTAGS_WAIT_REPORT_BOUND": str(budget)})
+        timer.join()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        outcome = json.loads(result.stdout)
+        self.assertEqual(outcome["outcome"], "result")
+        self.assertEqual(json.loads((run / "result.json").read_text())["status"], "refused")
+        return outcome["waited_seconds"]
+
+    def derived_step(self, budget, ceiling):
+        """`wait_poll_step_max()`'s own answer for one budget and ceiling, read by sourcing it.
+
+        Sourcing session.sh and calling the helper is what makes this cheap: the relationship is
+        an arithmetic one, so it can be swept over every budget in a range in milliseconds, where
+        each real `wait` costs ~30 s. `WAIT_REPORT_BOUND` is read from the source, so a test cannot
+        invent its own budget. The environment is a throwaway shell: nothing here touches a
+        worktree, a tmux pane or a run directory.
+        """
+        script = (
+            f'KTAGS_WAIT_REPORT_BOUND=%s KTAGS_WAIT_STEP_MAX=%s; '
+            f'. "%s" >/dev/null 2>&1; wait_poll_step_max'
+            % (budget, ceiling, ROOT / "scripts" / "session.sh")
+        )
+        out = subprocess.run(["bash", "-c", script], capture_output=True, text=True)
+        self.assertEqual(out.returncode, 0, f"wait_poll_step_max failed: {out.stderr}")
+        return int(out.stdout.strip())
 
     def report_bound(self):
         """The bound `wait` documents, read from session.sh so a test cannot invent its own."""
