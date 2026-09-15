@@ -27,6 +27,10 @@ set -euo pipefail
 ROOT="${KTAGS_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 RUN_ROOT="${KTAGS_RUN_DIR:-$HOME/.ktags-dev/runs}"
 WT_ROOT="${KTAGS_WORKTREE_DIR:-$HOME/.ktags-dev/worktrees}"
+# The duration budget: the longest a trust screen may go unreported, whatever --interval the caller
+# chose. wait_poll_step_max() below derives the poll step from this budget, so the budget is what
+# `wait` enforces; a step default raised past it cannot widen it.
+WAIT_REPORT_BOUND="${KTAGS_WAIT_REPORT_BOUND:-60}"
 CLAUDE_BIN="${KTAGS_CLAUDE_BIN:-}"
 REPO="${KTAGS_REPO:-nesiler/ktags}"
 DEFAULT_AGENT="${KTAGS_AGENT:-}"
@@ -107,13 +111,21 @@ claude_config_pin() {
   else echo "unset CLAUDE_CONFIG_DIR"; fi
 }
 
-# claude_trust grant|revoke <session key>: the only path ever granted is <realpath $WT_ROOT>/<key>.
-claude_trust() {
-  local action="$1" name="$2" root key cfg lock tries=0 code=0
+# claude_trust_key <session key>: prints the one config key ever granted for that session, or
+# returns non-zero. Grant, revoke and the manual-cleanup hint all resolve through here, so the
+# key a hint names can never drift from the key the grant wrote.
+claude_trust_key() {
+  local name="$1" root
   [[ "$name" =~ ^ktags-[0-9]+-(dev|review)(-r[0-9]+)?$ ]] || { echo "not a runner session key: $name" >&2; return 60; }
   root="$(cd "$WT_ROOT" 2>/dev/null && pwd -P)" || { echo "worktree root missing: $WT_ROOT" >&2; return 60; }
   [[ "$root" != / && "$root" != "$(cd "$HOME" && pwd -P)" ]] || { echo "worktree root is / or \$HOME: $root" >&2; return 60; }
-  key="$root/$name"
+  echo "$root/$name"
+}
+
+# claude_trust grant|revoke <session key>: the only path ever granted is <realpath $WT_ROOT>/<key>.
+claude_trust() {
+  local action="$1" name="$2" key cfg lock tries=0 code=0
+  key="$(claude_trust_key "$name")" || return $?
   if [[ "$action" == grant ]]; then
     [[ "$(cd "$key" 2>/dev/null && pwd -P)" == "$key" ]] || { echo "not a runner worktree: $key" >&2; return 60; }
   fi
@@ -163,6 +175,18 @@ trust_screen_shown() {
   local pane
   pane="$(tmux capture-pane -p -t "${1}:" 2>/dev/null || true)"
   [[ "$pane" == *"Yes, I trust this folder"* && "$pane" == *"No, exit"* && "$pane" != *"bypass permissions"* ]]
+}
+
+# The longest single poll step `wait` may sleep, so a trust screen is looked at often enough to be
+# reported inside WAIT_REPORT_BOUND. KTAGS_WAIT_STEP_MAX is the operator's ceiling (default 15); it
+# is additionally clamped to half the budget, because a screen appearing an instant after a poll is
+# only seen on the next one, and that whole step must still fit inside the budget. Tying the step to
+# the budget here is what makes the budget enforced rather than implied by the step default.
+wait_poll_step_max() {
+  local ceiling="${KTAGS_WAIT_STEP_MAX:-15}" derived=$((WAIT_REPORT_BOUND / 2))
+  [[ "$derived" -ge 1 ]] || derived=1
+  [[ "$ceiling" -le "$derived" ]] || ceiling="$derived"
+  echo "$ceiling"
 }
 
 # key: ktags-<issue>-<stage>[-r<N>]   remote-control name: #<issue>-<Stage>[-rN]
@@ -457,11 +481,13 @@ cmd_wait() {
   done
   [[ -n "$key" ]] || die "usage: session.sh wait <key> [--timeout s] [--interval s]"
   need jq
-  local dir started outcome="" agent step="$interval" step_max="${KTAGS_WAIT_STEP_MAX:-15}"
+  local dir started outcome="" agent step="$interval" step_max
   dir="$(run_dir "$key")"
   [[ -d "$dir" ]] || die "unknown session: $key"
   agent="$(jq -r '.agent // empty' "$dir/meta.json" 2>/dev/null || true)"
-  # A trust screen must be reported within 60 s whatever --interval the caller chose.
+  # A trust screen must be reported within WAIT_REPORT_BOUND whatever --interval the caller chose,
+  # so the poll step is clamped to a ceiling that is itself tied to that budget.
+  step_max="$(wait_poll_step_max)"
   [[ "$step" -le "$step_max" ]] || step="$step_max"
   started="$(epoch)"
   while :; do
@@ -642,7 +668,7 @@ cmd_clean() {
   for k in $keys; do
     tmux kill-session -t "=$k" 2>/dev/null || true
     claude_trust revoke "$k" >/dev/null 2>&1 \
-      || echo "note  Claude trust for $k not revoked; remove projects[\"$WT_ROOT/$k\"] from $(claude_config_file)" >&2
+      || echo "note  Claude trust for $k not revoked; remove projects[\"$(claude_trust_key "$k" 2>/dev/null || echo "$WT_ROOT/$k")\"] from $(claude_config_file)" >&2
     if [[ -d "$WT_ROOT/$k" ]]; then git -C "$ROOT" worktree remove --force "$WT_ROOT/$k" 2>/dev/null || rm -rf "$WT_ROOT/$k"; fi
     if [[ "$purge" == 1 ]]; then rm -rf "$(run_dir "$k")"; else mv "$(run_dir "$k")" "$archive/$stamp-$k"; fi
     cleaned="$cleaned $k"
