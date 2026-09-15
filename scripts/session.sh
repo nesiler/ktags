@@ -27,8 +27,9 @@ set -euo pipefail
 ROOT="${KTAGS_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 RUN_ROOT="${KTAGS_RUN_DIR:-$HOME/.ktags-dev/runs}"
 WT_ROOT="${KTAGS_WORKTREE_DIR:-$HOME/.ktags-dev/worktrees}"
-# The longest a trust screen may go unreported, whatever --interval the caller chose. One poll
-# step is capped at KTAGS_WAIT_STEP_MAX so four times the default stays inside this bound.
+# The duration budget: the longest a trust screen may go unreported, whatever --interval the caller
+# chose. wait_poll_step_max() below derives the poll step from this budget, so the budget is what
+# `wait` enforces; a step default raised past it cannot widen it.
 WAIT_REPORT_BOUND="${KTAGS_WAIT_REPORT_BOUND:-60}"
 CLAUDE_BIN="${KTAGS_CLAUDE_BIN:-}"
 REPO="${KTAGS_REPO:-nesiler/ktags}"
@@ -174,6 +175,18 @@ trust_screen_shown() {
   local pane
   pane="$(tmux capture-pane -p -t "${1}:" 2>/dev/null || true)"
   [[ "$pane" == *"Yes, I trust this folder"* && "$pane" == *"No, exit"* && "$pane" != *"bypass permissions"* ]]
+}
+
+# The longest single poll step `wait` may sleep, so a trust screen is looked at often enough to be
+# reported inside WAIT_REPORT_BOUND. KTAGS_WAIT_STEP_MAX is the operator's ceiling (default 15); it
+# is additionally clamped to half the budget, because a screen appearing an instant after a poll is
+# only seen on the next one, and that whole step must still fit inside the budget. Tying the step to
+# the budget here is what makes the budget enforced rather than implied by the step default.
+wait_poll_step_max() {
+  local ceiling="${KTAGS_WAIT_STEP_MAX:-15}" derived=$((WAIT_REPORT_BOUND / 2))
+  [[ "$derived" -ge 1 ]] || derived=1
+  [[ "$ceiling" -le "$derived" ]] || ceiling="$derived"
+  echo "$ceiling"
 }
 
 # key: ktags-<issue>-<stage>[-r<N>]   remote-control name: #<issue>-<Stage>[-rN]
@@ -468,11 +481,13 @@ cmd_wait() {
   done
   [[ -n "$key" ]] || die "usage: session.sh wait <key> [--timeout s] [--interval s]"
   need jq
-  local dir started outcome="" agent step="$interval" step_max="${KTAGS_WAIT_STEP_MAX:-15}"
+  local dir started outcome="" agent step="$interval" step_max
   dir="$(run_dir "$key")"
   [[ -d "$dir" ]] || die "unknown session: $key"
   agent="$(jq -r '.agent // empty' "$dir/meta.json" 2>/dev/null || true)"
-  # A trust screen must be reported within WAIT_REPORT_BOUND whatever --interval the caller chose.
+  # A trust screen must be reported within WAIT_REPORT_BOUND whatever --interval the caller chose,
+  # so the poll step is clamped to a ceiling that is itself tied to that budget.
+  step_max="$(wait_poll_step_max)"
   [[ "$step" -le "$step_max" ]] || step="$step_max"
   started="$(epoch)"
   while :; do
