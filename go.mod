@@ -3,11 +3,11 @@ module github.com/nesiler/ktags
 go 1.27
 
 require (
-	charm.land/bubbletea/v2 v2.0.9
+	charm.land/bubbletea/v2 v2.0.10
 	charm.land/lipgloss/v2 v2.0.6
 	github.com/charmbracelet/colorprofile v0.4.3
 	github.com/charmbracelet/x/ansi v0.11.8
-	github.com/charmbracelet/x/exp/golden v0.0.0-20251109135125-8916d276318f
+	github.com/charmbracelet/x/exp/golden v0.1.0
 	github.com/charmbracelet/x/exp/teatest/v2 v2.0.0-20260906004030-3986e9119cf9
 	github.com/goccy/go-yaml v1.19.2
 	github.com/lrstanley/bubblezone/v2 v2.0.0
